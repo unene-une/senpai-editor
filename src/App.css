@@ -1,0 +1,213 @@
+:root {
+  font-family: Inter, Avenir, Helvetica, Arial, sans-serif;
+  font-size: 16px;
+  line-height: 24px;
+  font-weight: 400;
+
+  /* Default Light Theme Variables */
+  --app-bg: #f6f6f6;
+  --app-text: #0f0f0f;
+  --content-bg: #ffffff;
+  --sidebar-bg: #f0f0f0;
+  --sidebar-border: #ddd;
+  --statusbar-bg: #e0e0e0;
+  --statusbar-border: #ccc;
+  --editor-bg: #ffffff;
+  --editor-text: #333333;
+  --accent-color: #007bff;
+  --ws-color: #999;
+  --ws-newline-color: #bbb;
+  --menu-hover: #f0f0f0;
+
+  color: var(--app-text);
+  background-color: var(--app-bg);
+
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  -webkit-text-size-adjust: 100%;
+}
+
+body,
+html,
+#root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+.app-container {
+  display: flex;
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+  background-color: var(--app-bg);
+  color: var(--app-text);
+}
+
+.sidebar {
+  background-color: var(--sidebar-bg);
+  border-right: 1px solid var(--sidebar-border);
+}
+
+.content-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background-color: var(--content-bg);
+  position: relative;
+}
+
+.editor-textarea {
+  flex: 1;
+  width: 100%;
+  padding: 2rem;
+  box-sizing: border-box;
+  font-size: 1rem;
+  line-height: 1.8;
+  resize: none;
+  outline: none;
+  border: none;
+  background-color: var(--editor-bg);
+  color: var(--editor-text);
+}
+
+.status-bar {
+  flex-shrink: 0;
+  background-color: var(--statusbar-bg) !important;
+  border-top: 1px solid var(--statusbar-border) !important;
+}
+
+.sidebar-header {
+  border-bottom: 1px solid var(--sidebar-border);
+}
+
+.sidebar-footer {
+  border-top: 1px solid var(--sidebar-border) !important;
+}
+
+.folder-group .folder-header {
+  background-color: var(--statusbar-bg);
+}
+
+.context-menu-item:hover {
+  background-color: var(--menu-hover);
+}
+
+.issue-item:hover {
+  background-color: var(--menu-hover);
+}
+
+/* Rainbow Animation */
+@keyframes rainbow {
+  0% {
+    background-position: 0% 50%;
+  }
+
+  50% {
+    background-position: 100% 50%;
+  }
+
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+.theme-rainbow {
+  background: linear-gradient(124deg, #ff2400, #e81d1d, #e8b71d, #e3e81d, #1de840, #1ddde8, #2b1de8, #dd00f3, #dd00f3);
+  background-size: 1800% 1800%;
+  animation: rainbow 18s ease infinite;
+}
+
+.issue-item:hover {
+  background-color: #f5f5f5;
+}
+
+.editor-container {
+  scrollbar-gutter: stable;
+}
+
+.editor-textarea,
+.editor-backdrop {
+  scrollbar-gutter: stable;
+  overflow-y: scroll;
+  /* Force scrollbar to ensure alignment */
+}
+
+.editor-backdrop {
+  user-select: none;
+  pointer-events: none;
+  background: transparent;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.ws-space,
+.ws-ideographic-space,
+.ws-tab,
+.ws-newline,
+.ws-text {
+  position: relative;
+  display: inline;
+}
+
+.ws-space,
+.ws-ideographic-space,
+.ws-tab,
+.ws-text {
+  color: transparent !important;
+}
+
+.ws-space::before,
+.ws-ideographic-space::before,
+.ws-tab::before {
+  position: absolute;
+  top: 0;
+  left: 0;
+  color: var(--ws-color);
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+.ws-space::before {
+  content: "·";
+}
+
+.ws-ideographic-space::before {
+  content: "□";
+}
+
+.ws-tab::before {
+  content: "»";
+}
+
+.ws-newline {
+  display: inline-block;
+  width: 0;
+  overflow: visible;
+  vertical-align: middle;
+}
+
+.ws-newline::before {
+  content: "↵";
+  position: absolute;
+  color: var(--ws-newline-color);
+  opacity: 0.8;
+  pointer-events: none;
+}
+
+@media (prefers-color-scheme: dark) {
+
+  .ws-space::before,
+  .ws-ideographic-space::before,
+  .ws-tab::before {
+    color: #555;
+  }
+
+  .ws-newline::before {
+    color: #444;
+  }
+}
