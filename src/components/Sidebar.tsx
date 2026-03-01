@@ -1,5 +1,5 @@
 import React from 'react';
-import { Folder, FileText, Settings, PlusSquare } from 'lucide-react';
+import { Folder, FileText, Settings, PlusSquare, HelpCircle } from 'lucide-react';
 
 interface FileItem {
     name: string;
@@ -22,11 +22,12 @@ interface SidebarProps {
     onNewProject: () => void;
     onRemoveFolder: (folderPath: string) => void;
     onFileContextMenu?: (e: React.MouseEvent, file: FileItem) => void;
+    onHelpClick: () => void;
     currentFilePath: string | null;
     dirtyFiles: Set<string>;
 }
 
-const Sidebar: React.FC<SidebarProps> = ({ folders, onSelect, onSettingsClick, onOpenFolder, onNewProject, onRemoveFolder, onFileContextMenu, currentFilePath, dirtyFiles }) => {
+const Sidebar: React.FC<SidebarProps> = ({ folders, onSelect, onSettingsClick, onOpenFolder, onNewProject, onRemoveFolder, onFileContextMenu, onHelpClick, currentFilePath, dirtyFiles }) => {
     const renderFileItem = (item: FileItem) => {
         const isActive = item.path === currentFilePath;
         return (
@@ -94,6 +95,10 @@ const Sidebar: React.FC<SidebarProps> = ({ folders, onSelect, onSettingsClick, o
                 <button onClick={onSettingsClick} style={{ display: 'flex', alignItems: 'center', gap: '8px', border: 'none', background: 'transparent', cursor: 'pointer', color: 'inherit' }}>
                     <Settings size={16} />
                     設定
+                </button>
+                <button onClick={onHelpClick} style={{ display: 'flex', alignItems: 'center', gap: '8px', border: 'none', background: 'transparent', cursor: 'pointer', color: 'inherit' }}>
+                    <HelpCircle size={16} />
+                    ヘルプ
                 </button>
             </div>
         </div>

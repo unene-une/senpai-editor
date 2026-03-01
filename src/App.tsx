@@ -6,6 +6,7 @@ import StatusBar from "./components/StatusBar";
 import { open as openDialog, save, ask } from '@tauri-apps/plugin-dialog';
 import { writeTextFile, readDir } from '@tauri-apps/plugin-fs';
 import { openUrl } from '@tauri-apps/plugin-opener';
+import { resolveResource } from '@tauri-apps/api/path';
 
 // Define FileItem type locally for now
 interface FileItem {
@@ -620,6 +621,21 @@ function App() {
   };
   handleSaveRef.current = handleSave;
 
+  const handleHelpClick = async () => {
+    try {
+      const path = await resolveResource('help.html');
+      await openUrl(path);
+    } catch (err) {
+      console.error("Failed to open help:", err);
+      // Fallback: Try relative if resource fails
+      try {
+        await openUrl('help.html');
+      } catch (err2) {
+        alert("ヘルプマニュアルを開けませんでした。");
+      }
+    }
+  };
+
   const [showProofing, setShowProofing] = useState(false);
   const [proofingIssues, setProofingIssues] = useState<ProofingIssue[]>([]);
   const [showSettings, setShowSettings] = useState(false);
@@ -815,6 +831,7 @@ function App() {
         onNewProject={() => setShowNewProjectModal(true)}
         onRemoveFolder={handleRemoveFolder}
         onFileContextMenu={handleFileContextMenu}
+        onHelpClick={handleHelpClick}
         currentFilePath={currentFilePath}
         dirtyFiles={dirtyFileSet}
       />
