@@ -35,6 +35,9 @@
       "wix": {
         "language": "ja-JP"
       }
-    }
+    },
+    "resources": [
+      "../public/help.html"
+    ]
   }
 }

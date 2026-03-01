@@ -49,6 +49,9 @@
         },
         {
           "path": "$APPDATA/**"
+        },
+        {
+          "path": "$RESOURCE/help.html"
         }
       ]
     },

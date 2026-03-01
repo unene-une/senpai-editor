@@ -623,11 +623,17 @@ function App() {
 
   const handleHelpClick = async () => {
     try {
-      const path = await resolveResource('help.html');
-      await openUrl(path);
+      if (window.location.hostname === 'localhost') {
+        // Dev mode: use Vite server
+        await openUrl(`${window.location.origin}/help.html`);
+      } else {
+        // Production: resolve resource path
+        const path = await resolveResource('help.html');
+        await openUrl(path);
+      }
     } catch (err) {
       console.error("Failed to open help:", err);
-      // Fallback: Try relative if resource fails
+      // Fallback
       try {
         await openUrl('help.html');
       } catch (err2) {
