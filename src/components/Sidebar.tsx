@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Folder, FileText, Settings, PlusSquare, HelpCircle } from 'lucide-react';
 
 interface FileItem {
@@ -28,6 +28,34 @@ interface SidebarProps {
 }
 
 const Sidebar: React.FC<SidebarProps> = ({ folders, onSelect, onSettingsClick, onOpenFolder, onNewProject, onRemoveFolder, onFileContextMenu, onHelpClick, currentFilePath, dirtyFiles }) => {
+    const [width, setWidth] = useState(() => {
+        const saved = localStorage.getItem('sidebarWidth');
+        return saved ? parseInt(saved, 10) : 250;
+    });
+
+    useEffect(() => {
+        localStorage.setItem('sidebarWidth', width.toString());
+    }, [width]);
+
+    const handleMouseDown = (e: React.MouseEvent) => {
+        e.preventDefault();
+        const startX = e.clientX;
+        const startWidth = width;
+
+        const handleMouseMove = (mouseMoveEvent: MouseEvent) => {
+            const newWidth = startWidth + (mouseMoveEvent.clientX - startX);
+            setWidth(Math.max(150, Math.min(newWidth, 600)));
+        };
+
+        const handleMouseUp = () => {
+            document.removeEventListener('mousemove', handleMouseMove);
+            document.removeEventListener('mouseup', handleMouseUp);
+        };
+
+        document.addEventListener('mousemove', handleMouseMove);
+        document.addEventListener('mouseup', handleMouseUp);
+    };
+
     const renderFileItem = (item: FileItem) => {
         const isActive = item.path === currentFilePath;
         return (
@@ -76,7 +104,19 @@ const Sidebar: React.FC<SidebarProps> = ({ folders, onSelect, onSettingsClick, o
     );
 
     return (
-        <div className="sidebar" style={{ width: '250px', background: 'var(--sidebar-bg)', height: '100%', display: 'flex', flexDirection: 'column', borderRight: '1px solid var(--sidebar-border)', color: 'var(--app-text)' }}>
+        <div className="sidebar" style={{ width: `${width}px`, background: 'var(--sidebar-bg)', height: '100%', display: 'flex', flexDirection: 'column', borderRight: '1px solid var(--sidebar-border)', color: 'var(--app-text)', position: 'relative', flexShrink: 0 }}>
+            <div
+                onMouseDown={handleMouseDown}
+                style={{
+                    position: 'absolute',
+                    top: 0,
+                    right: -3,
+                    width: '6px',
+                    height: '100%',
+                    cursor: 'ew-resize',
+                    zIndex: 10
+                }}
+            />
             <div className="sidebar-header" style={{ padding: '1rem', fontWeight: 'bold' }}>
                 執筆タイトル
             </div>

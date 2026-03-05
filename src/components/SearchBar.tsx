@@ -177,9 +177,9 @@ const SearchBar: React.FC<SearchBarProps> = ({ content, onContentChange, onClose
                 </span>
                 <button style={btnStyle} onClick={goPrev} title="前へ (Shift+Enter)"><ChevronUp size={14} /></button>
                 <button style={btnStyle} onClick={goNext} title="次へ (Enter)"><ChevronDown size={14} /></button>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '3px', fontSize: '12px', cursor: 'pointer', color: 'var(--app-text)', whiteSpace: 'nowrap' }}>
+                <label title="大文字/小文字を区別する" style={{ display: 'flex', alignItems: 'center', gap: '3px', fontSize: '12px', cursor: 'pointer', color: 'var(--app-text)', whiteSpace: 'nowrap' }}>
                     <input type="checkbox" checked={matchCase} onChange={e => setMatchCase(e.target.checked)} />
-                    大小
+                    <span style={{ fontWeight: 'bold' }}>Aa</span> 大文字/小文字区別
                 </label>
                 <button style={btnStyle} onClick={() => setShowReplace(v => !v)} title="置換">
                     <Replace size={14} />

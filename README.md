@@ -1,7 +1,42 @@
-# Tauri + React + Typescript
+# Senpai Editor
 
-This template should help get you started developing with Tauri, React and Typescript in Vite.
+Senpai Editor は、Tauri + React + TypeScript で構築された日本語小説執筆向けのデスクトップテキストエディタです。
+執筆に集中できるシンプルなUIと、小説ならではのフォーマット設定機能を備えています。
 
-## Recommended IDE Setup
+## ターゲットユーザー
+- 日本語の小説を執筆する方
+- シンプルで動作の軽いエディタを好む方
+- 縦書き表示や、原稿用紙換算（文字数×行数×段組）でのページ数把握が必要な方
 
-- [VS Code](https://code.visualstudio.com/) + [Tauri](https://marketplace.visualstudio.com/items?itemName=tauri-apps.tauri-vscode) + [rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer)
+## 主な機能
+- **プロジェクト管理機能**: フォルダベースでのファイルツリー表示
+- **リアルタイム文字数・ページ数計算**: 設定した「1行の文字数」「1ページ内の行数」「段組み」に基づき、リアルタイムにページ数を算出
+- **複数テーマ対応**: ライト/ダークテーマに加え、集中力を高める Rainbow テーマや独自配色の Custom テーマに対応
+- **カスタム表示設定**: 行長、文字サイズ、空白・改行記号の可視化、縦書きモードなどを設定可能
+- **自動保存**: バックグラウンドでの自動保存機能（20分間隔）
+- **簡易校正機能**: 連続する同じ助詞、閉じ忘れの括弧、余計な連続句読点などをリアルタイムに提案
+- **検索・置換**: 大文字/小文字の区別をサポートする、エディタ内検索と置換機能
+- **クロスプラットフォーム対応**: Windows (NSIS, WiX) など各種インストーラーでの配布に対応
+
+## インストール手順
+
+### 開発環境のセットアップ
+1. リポジトリをクローンします。
+2. 依存パッケージをインストールします:
+   ```bash
+   npm install
+   ```
+3. 開発サーバーとTauriアプリを起動します:
+   ```bash
+   npm run tauri dev
+   ```
+
+### ビルド
+本番用のインストーラーや実行ファイルを生成するには以下のコマンドを実行します。
+```bash
+npm run tauri build
+```
+ビルド成果物は `src-tauri/target/release/bundle` ディレクトリ以下に出力されます。
+
+## スクリーンショット
+![Senpai Editor Screenshot](src/assets/screenshot.png)

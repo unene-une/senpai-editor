@@ -16,7 +16,8 @@ const Editor: React.FC<EditorProps> = ({ content, onChange, settings, onContextM
     const lineHeightPx = Math.round(settings.fontSize * 1.8);
     const commonStyle: CSSProperties = {
         fontSize: `${settings.fontSize}px`,
-        width: `calc(${settings.lineLength + 1}em + 4rem)`,
+        width: settings.verticalWriting ? '100%' : `calc(${settings.lineLength + 1}em + 4rem)`,
+        height: settings.verticalWriting ? `calc(${settings.lineLength + 1}em + 4rem)` : '100%',
         maxWidth: '100%',
         lineHeight: `${lineHeightPx}px`,
         fontFamily: '"BIZ UDGothic", "MS Gothic", "Cascadia Code", "Consolas", "Inconsolata", monospace',
@@ -27,6 +28,7 @@ const Editor: React.FC<EditorProps> = ({ content, onChange, settings, onContextM
         letterSpacing: '0px',
         tabSize: 4,
         fontVariantLigatures: 'none',
+        writingMode: settings.verticalWriting ? 'vertical-rl' : 'horizontal-tb',
     };
 
     const textareaStyle: CSSProperties = {
@@ -68,25 +70,20 @@ const Editor: React.FC<EditorProps> = ({ content, onChange, settings, onContextM
                 if (char === ' ') {
                     elements.push(
                         <span key={j} style={{
-                            display: 'inline-block',
-                            overflow: 'visible',
-                            color: 'var(--ws-color)',
+                            color: 'var(--ws-color)'
                         }}>·</span>
                     );
                 } else if (char === '　') {
                     elements.push(
                         <span key={j} style={{
-                            display: 'inline-block',
-                            overflow: 'visible',
                             color: 'var(--ws-color)',
+                            textOrientation: settings.verticalWriting ? 'upright' : undefined
                         }}>□</span>
                     );
                 } else if (char === '\t') {
                     elements.push(
                         <span key={j} style={{
-                            display: 'inline-block',
-                            overflow: 'visible',
-                            color: 'var(--ws-color)',
+                            color: 'var(--ws-color)'
                         }}>»</span>
                     );
                 } else {
@@ -97,10 +94,11 @@ const Editor: React.FC<EditorProps> = ({ content, onChange, settings, onContextM
             return (
                 <React.Fragment key={i}>
                     {elements}
-                    {/* 改行記号: width:0 で折り返し幅に影響させない */}
+                    {/* 改行記号: 進行方向のサイズ寸法を0にして折り返しに影響させない */}
                     <span style={{
                         display: 'inline-block',
-                        width: 0,
+                        width: settings.verticalWriting ? 'auto' : 0,
+                        height: settings.verticalWriting ? 0 : 'auto',
                         overflow: 'visible',
                         whiteSpace: 'nowrap',
                         color: 'var(--ws-newline-color)',

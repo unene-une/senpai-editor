@@ -6,7 +6,7 @@ import StatusBar from "./components/StatusBar";
 import { open as openDialog, save, ask } from '@tauri-apps/plugin-dialog';
 import { writeTextFile, readDir } from '@tauri-apps/plugin-fs';
 import { openUrl } from '@tauri-apps/plugin-opener';
-import { resolveResource } from '@tauri-apps/api/path';
+import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
 
 // Define FileItem type locally for now
 interface FileItem {
@@ -48,6 +48,7 @@ const defaultSettings = {
   countLinesPerPage: 20,
   columnsPerPage: 1,
   showWhitespace: false,
+  verticalWriting: false,
   theme: 'light' as 'light' | 'dark' | 'rainbow' | 'custom',
   customColors: {
     appBg: '#f6f6f6',
@@ -122,6 +123,7 @@ function App() {
   // 未保存ファイルセット（再描画のためにstateにも持つ）
   const [dirtyFileSet, setDirtyFileSet] = useState<Set<string>>(new Set());
   const dirtyFileSetRef = useRef<Set<string>>(new Set()); // onCloseRequested用
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   const markDirty = (path: string) => {
     dirtyFileSetRef.current = new Set(dirtyFileSetRef.current).add(path);
@@ -314,6 +316,54 @@ function App() {
       if (unwatchFn) unwatchFn();
     };
   }, [currentFilePath]);
+
+  // オートセーブ機能(20分間隔)
+  useEffect(() => {
+    const intervalId = setInterval(async () => {
+      const dirtyPaths = Array.from(dirtyFileSetRef.current);
+      if (dirtyPaths.length === 0) return;
+
+      let savedCount = 0;
+      for (const path of dirtyPaths) {
+        const buf = fileBuffers.current.get(path);
+        // 保存不要、または実在のパスでないものはスキップ
+        if (!buf || !buf.isDirty || path.startsWith('Untitled')) continue;
+
+        try {
+          isSavingRef.current = true;
+          if (buf.encoding === 'Shift-JIS') {
+            const { writeFile } = await import('@tauri-apps/plugin-fs');
+            const unicodeCodes = Encoding.stringToCode(buf.content);
+            const sjisCodes = Encoding.convert(unicodeCodes, { to: 'SJIS', from: 'UNICODE' });
+            await writeFile(path, new Uint8Array(sjisCodes));
+          } else {
+            const { writeTextFile } = await import('@tauri-apps/plugin-fs');
+            await writeTextFile(path, buf.content);
+          }
+
+          fileBuffers.current.set(path, { ...buf, isDirty: false, originalContent: buf.content });
+          setDirtyFileSet(prev => {
+            const next = new Set(prev);
+            next.delete(path);
+            return next;
+          });
+          dirtyFileSetRef.current = new Set(Array.from(dirtyFileSetRef.current).filter(p => p !== path));
+          savedCount++;
+        } catch (err) {
+          console.error(`Auto-save failed for ${path}:`, err);
+        } finally {
+          setTimeout(() => { isSavingRef.current = false; }, 1000);
+        }
+      }
+
+      if (savedCount > 0) {
+        setToastMessage('自動保存完了');
+        setTimeout(() => setToastMessage(null), 3000);
+      }
+    }, 20 * 60 * 1000);
+
+    return () => clearInterval(intervalId);
+  }, []);
 
   // Handle content change to set dirty + バッファ同期
   const handleContentChange = useCallback((newContent: string) => {
@@ -623,21 +673,21 @@ function App() {
 
   const handleHelpClick = async () => {
     try {
-      if (window.location.hostname === 'localhost') {
-        // Dev mode: use Vite server
-        await openUrl(`${window.location.origin}/help.html`);
-      } else {
-        // Production: resolve resource path
-        const path = await resolveResource('help.html');
-        await openUrl(path);
-      }
+      // Create a new window for the help manual.
+      new WebviewWindow('help-manual', {
+        url: '/help.html',
+        title: 'Senpai Editor ヘルプマニュアル',
+        width: 900,
+        height: 700,
+        resizable: true,
+      });
+      // window.open('help.html', '_blank'); fallback removed or kept?
     } catch (err) {
       console.error("Failed to open help:", err);
-      // Fallback
       try {
-        await openUrl('help.html');
+        window.open('/help.html', '_blank');
       } catch (err2) {
-        alert("ヘルプマニュアルを開けませんでした。");
+        alert(`ヘルプマニュアルを開けませんでした。\nエラー: ${err}`);
       }
     }
   };
@@ -848,7 +898,8 @@ function App() {
           settings={{
             lineLength: settings.visualLineLength,
             fontSize: settings.fontSize,
-            showWhitespace: settings.showWhitespace
+            showWhitespace: settings.showWhitespace,
+            verticalWriting: settings.verticalWriting
           }}
           onContextMenu={handleContextMenu}
         />
@@ -879,6 +930,23 @@ function App() {
           encoding={currentEncoding}
         />
       </div>
+
+      {toastMessage && (
+        <div style={{
+          position: 'fixed',
+          bottom: '40px',
+          right: '20px',
+          background: 'var(--app-text, #333)',
+          color: 'var(--app-bg, #fff)',
+          padding: '8px 16px',
+          borderRadius: '4px',
+          boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
+          zIndex: 9999,
+          animation: 'fadeIn 0.3s'
+        }}>
+          {toastMessage}
+        </div>
+      )}
 
       {showProofing && (
         <ProofingPanel
@@ -939,7 +1007,7 @@ function App() {
           )}
           <button
             onClick={() => setContextMenu(null)}
-            style={{ padding: '8px 16px', border: 'none', background: 'none', cursor: 'pointer', textAlign: 'left', borderTop: '1px solid #eee' }}
+            style={{ padding: '8px 16px', border: 'none', background: 'none', cursor: 'pointer', textAlign: 'left', borderTop: '1px solid var(--sidebar-border, #eee)' }}
           >
             キャンセル
           </button>
