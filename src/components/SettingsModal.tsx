@@ -250,7 +250,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ settings, onSave, onClose
                             )}
                         </div>
 
-                        <div>
+                        <div style={{ borderBottom: '1px solid var(--sidebar-border, #cccccc)', paddingBottom: '1rem' }}>
                             <h3 style={{ fontSize: '16px', marginBottom: '0.8rem' }}>ページ計算の基準 (Manuscript)</h3>
 
                             {/* Preset Management UI */}
