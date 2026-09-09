@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useLayoutEffect, useRef, useCallback } from "react";
 import "./App.css";
 import Editor from "./components/Editor";
 import Sidebar from "./components/Sidebar";
@@ -23,7 +23,17 @@ interface FolderItem {
 }
 
 // ファイルバッファの型定義（コンポーネント外に定義してレンダリングごとの再定義を回避）
-type FileBuffer = { content: string; encoding: string; isDirty: boolean; originalContent: string };
+// caret*/scroll* は既存バッファとの互換のため省略可能。無い場合は 0 として扱う
+type FileBuffer = {
+  content: string;
+  encoding: string;
+  isDirty: boolean;
+  originalContent: string;
+  caretStart?: number;
+  caretEnd?: number;
+  scrollTop?: number;
+  scrollLeft?: number;
+};
 
 import { checkProofing, ProofingIssue } from "./utils/proofreader";
 import ProofingPanel from "./components/ProofingPanel";
@@ -592,6 +602,10 @@ function App() {
         encoding: encoding === 'SJIS' ? 'Shift-JIS' : 'UTF-8',
         isDirty: false,
         originalContent: normalized,
+        caretStart: 0,
+        caretEnd: 0,
+        scrollTop: 0,
+        scrollLeft: 0,
       });
       unmarkDirty(path);
     } catch (err) {
@@ -602,15 +616,27 @@ function App() {
   const handleSelectFileWrapper = async (file: FileItem) => {
     if (file.type !== 'file') return;
 
-    // 1. 現在ファイルの状態をバッファに保存
+    // 1. 現在ファイルの状態をバッファに保存（content/isDirty は handleContentChange が
+    //    毎回更新済みなので再計算せず、既存バッファに caret/スクロール位置だけ足し込む）
     if (currentFilePathRef.current) {
-      const existing = fileBuffers.current.get(currentFilePathRef.current);
-      fileBuffers.current.set(currentFilePathRef.current, {
-        content,
-        encoding: currentEncoding,
-        isDirty: dirtyFileSet.has(currentFilePathRef.current),
-        originalContent: existing?.originalContent ?? content,
-      });
+      const path = currentFilePathRef.current;
+      const existing = fileBuffers.current.get(path);
+      const textarea = textareaRef.current;
+      const caretFields = {
+        caretStart: textarea?.selectionStart ?? 0,
+        caretEnd: textarea?.selectionEnd ?? 0,
+        scrollTop: textarea?.scrollTop ?? 0,
+        scrollLeft: textarea?.scrollLeft ?? 0,
+      };
+      fileBuffers.current.set(path, existing
+        ? { ...existing, ...caretFields }
+        : {
+          content,
+          encoding: currentEncoding,
+          isDirty: dirtyFileSet.has(path),
+          originalContent: content,
+          ...caretFields,
+        });
     }
 
     // 2. 新ファイルがバッファにあれば従下保存済みの内容を復元
@@ -625,6 +651,23 @@ function App() {
       await readFileWithEncoding(file.path);
     }
   };
+
+  // ファイル切替後、DOM更新が確定してから（描画前に）カーソル位置とスクロール位置を復元する
+  useLayoutEffect(() => {
+    if (!currentFilePath) return;
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    const buffer = fileBuffers.current.get(currentFilePath);
+    if (!buffer) return;
+
+    const caretStart = buffer.caretStart ?? 0;
+    const caretEnd = buffer.caretEnd ?? 0;
+    textarea.setSelectionRange(caretStart, caretEnd);
+    textarea.scrollTop = buffer.scrollTop ?? 0;
+    textarea.scrollLeft = buffer.scrollLeft ?? 0;
+    // サイドバークリックでフォーカスが失われているため、戻さないと次のクリックで選択範囲が上書きされる
+    textarea.focus();
+  }, [currentFilePath]);
 
   const handleSave = async () => {
     isSavingRef.current = true;
