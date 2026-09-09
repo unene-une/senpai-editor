@@ -3,7 +3,7 @@ import "./App.css";
 import Editor from "./components/Editor";
 import Sidebar from "./components/Sidebar";
 import StatusBar from "./components/StatusBar";
-import { open as openDialog, save, ask } from '@tauri-apps/plugin-dialog';
+import { open as openDialog, save, ask, message } from '@tauri-apps/plugin-dialog';
 import { writeTextFile, readDir } from '@tauri-apps/plugin-fs';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
@@ -40,6 +40,7 @@ import ProofingPanel from "./components/ProofingPanel";
 import SettingsModal from "./components/SettingsModal";
 import NewProjectModal from "./components/NewProjectModal";
 import SearchBar from "./components/SearchBar";
+import { CustomDialog } from "./components/CustomDialog";
 import { CheckCircle } from "lucide-react";
 import Encoding from 'encoding-japanese';
 
@@ -711,7 +712,7 @@ function App() {
       }
     } catch (err) {
       console.error('Failed to save file:', err);
-      alert(`保存に失敗しました:\n${err}`);
+      await message(`保存に失敗しました:\n${err}`, { title: 'エラー', kind: 'error' });
     } finally {
       // 少し遅らせてから isSavingRef を解除（watchイベントが非同期で来る可能性）
       setTimeout(() => { isSavingRef.current = false; }, 1000);
@@ -737,7 +738,8 @@ function App() {
       try {
         window.open('/help.html', '_blank');
       } catch (err2) {
-        alert(`ヘルプマニュアルを開けませんでした。\nエラー: ${err}`);
+        console.error("Failed to open help fallback:", err2);
+        await message(`ヘルプマニュアルを開けませんでした。\nエラー: ${err}`, { title: 'エラー', kind: 'error' });
       }
     }
   };
@@ -842,12 +844,20 @@ function App() {
 
     } catch (err) {
       console.error("Failed to create project:", err);
-      alert(`プロジェクトの作成に失敗しました。\n理由: ${err instanceof Error ? err.message : String(err)}`);
+      await message(`プロジェクトの作成に失敗しました。\n理由: ${err instanceof Error ? err.message : String(err)}`, { title: 'エラー', kind: 'error' });
     }
   };
 
-  const handleRenameFile = async (file: FileItem) => {
-    const newName = prompt("新しいファイル名を入力してください (拡張子 .txt を含む):", file.name);
+  // リネーム用ダイアログの対象（開いているときだけ非null）。window.prompt は WebView2 で
+  // 常に null を返すため、アプリ内蔵の CustomDialog で入力を受け取る
+  const [renameTarget, setRenameTarget] = useState<FileItem | null>(null);
+
+  const handleRenameFile = (file: FileItem) => {
+    setRenameTarget(file);
+    setContextMenu(null);
+  };
+
+  const performRename = async (file: FileItem, newName: string) => {
     if (!newName || newName === file.name) return;
 
     try {
@@ -886,11 +896,9 @@ function App() {
       if (currentFilePath === file.path) {
         setCurrentFilePath(newPath);
       }
-
-      setContextMenu(null);
     } catch (err) {
       console.error("Failed to rename file:", err);
-      alert(`リネームに失敗しました: ${err}`);
+      await message(`リネームに失敗しました: ${err}`, { title: 'エラー', kind: 'error' });
     }
   };
 
@@ -1065,6 +1073,22 @@ function App() {
           </button>
         </div>
       )}
+
+      <CustomDialog
+        open={!!renameTarget}
+        inputMode
+        title="名前の変更"
+        message="新しいファイル名を入力してください (拡張子 .txt を含む):"
+        defaultValue={renameTarget?.name}
+        onConfirm={(value) => {
+          const target = renameTarget;
+          setRenameTarget(null);
+          if (target && value && value !== target.name) {
+            performRename(target, value);
+          }
+        }}
+        onCancel={() => setRenameTarget(null)}
+      />
     </main>
   );
 }

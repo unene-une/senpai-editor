@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { X } from 'lucide-react';
 import FocusTrap from 'focus-trap-react';
+import { message, ask } from '@tauri-apps/plugin-dialog';
+import { CustomDialog } from './CustomDialog';
 
 interface Preset {
     id: string;
@@ -38,6 +40,9 @@ interface SettingsModalProps {
 
 const SettingsModal: React.FC<SettingsModalProps> = ({ settings, onSave, onClose }) => {
     const [localSettings, setLocalSettings] = useState<Settings>(settings);
+    // プリセット新規保存用ダイアログの表示状態。window.prompt は WebView2 で常に null を
+    // 返すため、CustomDialog をこの FocusTrap のサブツリー内にインラインで描画する
+    const [showPresetNameDialog, setShowPresetNameDialog] = useState(false);
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
         const { name, value, type } = e.target;
@@ -75,7 +80,11 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ settings, onSave, onClose
     };
 
     const handleSaveAsNewPreset = () => {
-        const name = prompt('新しいプリセット名を入力してください:');
+        setShowPresetNameDialog(true);
+    };
+
+    const confirmSaveAsNewPreset = (name: string) => {
+        setShowPresetNameDialog(false);
         if (!name) return;
 
         const newPreset: Preset = {
@@ -93,9 +102,9 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ settings, onSave, onClose
         }));
     };
 
-    const handleUpdatePreset = () => {
+    const handleUpdatePreset = async () => {
         if (localSettings.currentPresetId === 'default') {
-            alert('標準プリセットは上書きできません。新しいプリセットとして保存してください。');
+            await message('標準プリセットは上書きできません。新しいプリセットとして保存してください。', { title: '確認', kind: 'warning' });
             return;
         }
 
@@ -108,16 +117,22 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ settings, onSave, onClose
                 columnsPerPage: prev.columnsPerPage
             } : p)
         }));
-        alert('プリセットを更新しました。');
+        await message('プリセットを更新しました。', { title: '完了' });
     };
 
-    const handleDeletePreset = () => {
+    const handleDeletePreset = async () => {
         if (localSettings.currentPresetId === 'default') {
-            alert('標準プリセットは削除できません。');
+            await message('標準プリセットは削除できません。', { title: '確認', kind: 'warning' });
             return;
         }
 
-        if (!confirm('このプリセットを削除してもよろしいですか？')) return;
+        const confirmed = await ask('このプリセットを削除してもよろしいですか？', {
+            title: '確認',
+            kind: 'warning',
+            okLabel: '削除',
+            cancelLabel: 'キャンセル'
+        });
+        if (!confirmed) return;
 
         const newPresets = localSettings.presets.filter(p => p.id !== localSettings.currentPresetId);
         setLocalSettings(prev => ({
@@ -284,6 +299,15 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ settings, onSave, onClose
                         </button>
                     </form>
                 </div>
+
+                <CustomDialog
+                    open={showPresetNameDialog}
+                    inputMode
+                    title="新規プリセット"
+                    message="新しいプリセット名を入力してください:"
+                    onConfirm={confirmSaveAsNewPreset}
+                    onCancel={() => setShowPresetNameDialog(false)}
+                />
             </div>
         </FocusTrap>
     );
