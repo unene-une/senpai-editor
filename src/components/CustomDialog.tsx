@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import './CustomDialog.css';
+import { refocusWindow } from '../utils/dialog';
 
 interface CustomDialogProps {
     open: boolean;
@@ -40,6 +41,9 @@ export const CustomDialog: React.FC<CustomDialogProps> = ({
     // 開くたびに初期値へ戻し、入力欄へフォーカスする
     useEffect(() => {
         if (!open) return;
+        // 保険: ネイティブダイアログ以外が原因でウィンドウのキーボードフォーカスを
+        // 失っていた場合でも、この入力欄を出す時点で拾い直せるようにする
+        void refocusWindow();
         setValue(defaultValue);
         if (inputMode) {
             // FocusTrap 内でも確実にフォーカスが移るよう、描画後に実行

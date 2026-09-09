@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { X, Folder } from 'lucide-react';
 import FocusTrap from 'focus-trap-react';
-import { open as openDialog } from '@tauri-apps/plugin-dialog';
+import { openDialog } from '../utils/dialog';
 
 interface NewProjectConfig {
     parentDir: string;

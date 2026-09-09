@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { X } from 'lucide-react';
 import FocusTrap from 'focus-trap-react';
-import { message, ask } from '@tauri-apps/plugin-dialog';
+import { messageDialog, askDialog } from '../utils/dialog';
 import { CustomDialog } from './CustomDialog';
 
 interface Preset {
@@ -106,7 +106,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ settings, onSave, onClose
 
     const handleUpdatePreset = async () => {
         if (localSettings.currentPresetId === 'default') {
-            await message('標準プリセットは上書きできません。新しいプリセットとして保存してください。', { title: '確認', kind: 'warning' });
+            await messageDialog('標準プリセットは上書きできません。新しいプリセットとして保存してください。', { title: '確認', kind: 'warning' });
             return;
         }
 
@@ -119,16 +119,16 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ settings, onSave, onClose
                 columnsPerPage: prev.columnsPerPage
             } : p)
         }));
-        await message('プリセットを更新しました。', { title: '完了' });
+        await messageDialog('プリセットを更新しました。', { title: '完了' });
     };
 
     const handleDeletePreset = async () => {
         if (localSettings.currentPresetId === 'default') {
-            await message('標準プリセットは削除できません。', { title: '確認', kind: 'warning' });
+            await messageDialog('標準プリセットは削除できません。', { title: '確認', kind: 'warning' });
             return;
         }
 
-        const confirmed = await ask('このプリセットを削除してもよろしいですか？', {
+        const confirmed = await askDialog('このプリセットを削除してもよろしいですか？', {
             title: '確認',
             kind: 'warning',
             okLabel: '削除',

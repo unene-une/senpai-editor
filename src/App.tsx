@@ -3,7 +3,7 @@ import "./App.css";
 import Editor from "./components/Editor";
 import Sidebar from "./components/Sidebar";
 import StatusBar from "./components/StatusBar";
-import { open as openDialog, save, ask, message } from '@tauri-apps/plugin-dialog';
+import { askDialog, messageDialog, saveDialog, openDialog } from './utils/dialog';
 import { writeTextFile, readDir } from '@tauri-apps/plugin-fs';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
@@ -254,7 +254,7 @@ function App() {
           const msg = dirtyPaths.length === 1
             ? '変更が保存されていません。終了しますか？'
             : `${dirtyPaths.length}件のファイルに未保存の変更があります:\n${names}\n\n終了しますか？`;
-          ask(msg, {
+          askDialog(msg, {
             title: '警告',
             kind: 'warning',
             okLabel: 'はい',
@@ -339,7 +339,7 @@ function App() {
 
       isAskingReloadRef.current = true;
       try {
-        const confirmed = await ask(
+        const confirmed = await askDialog(
           `ファイルが外部で変更されました:\n${filePath.split(/[\\/]/).pop()}\n\n再読み込みしますか？`,
           { title: 'ファイル変更検出', kind: 'info', okLabel: 'はい', cancelLabel: 'いいえ' }
         );
@@ -708,7 +708,7 @@ function App() {
           await writeTextFile(savedPath, content);
         }
       } else {
-        const selected = await save({
+        const selected = await saveDialog({
           filters: [{ name: 'Text', extensions: ['txt'] }]
         });
         if (selected) {
@@ -737,7 +737,7 @@ function App() {
       }
     } catch (err) {
       console.error('Failed to save file:', err);
-      await message(`保存に失敗しました:\n${err}`, { title: 'エラー', kind: 'error' });
+      await messageDialog(`保存に失敗しました:\n${err}`, { title: 'エラー', kind: 'error' });
     }
   };
   useEffect(() => {
@@ -761,7 +761,7 @@ function App() {
         window.open('/help.html', '_blank');
       } catch (err2) {
         console.error("Failed to open help fallback:", err2);
-        await message(`ヘルプマニュアルを開けませんでした。\nエラー: ${err}`, { title: 'エラー', kind: 'error' });
+        await messageDialog(`ヘルプマニュアルを開けませんでした。\nエラー: ${err}`, { title: 'エラー', kind: 'error' });
       }
     }
   };
@@ -805,7 +805,7 @@ function App() {
   // 設定をJSONファイルに書き出す
   const handleExportSettings = async (settingsToExport: AppSettings) => {
     try {
-      const path = await save({
+      const path = await saveDialog({
         defaultPath: 'senpai-editor-settings.json',
         filters: [{ name: 'JSON', extensions: ['json'] }]
       });
@@ -817,10 +817,10 @@ function App() {
 
       const backup = createSettingsBackup(settingsToExport, openFolders, sidebarWidth);
       await writeTextFile(path, JSON.stringify(backup, null, 2));
-      await message('設定を書き出しました。', { title: '完了' });
+      await messageDialog('設定を書き出しました。', { title: '完了' });
     } catch (err) {
       console.error('[Settings] Failed to export settings:', err);
-      await message(`設定の書き出しに失敗しました:\n${err}`, { title: 'エラー', kind: 'error' });
+      await messageDialog(`設定の書き出しに失敗しました:\n${err}`, { title: 'エラー', kind: 'error' });
     }
   };
 
@@ -858,7 +858,7 @@ function App() {
         setSidebarKey(k => k + 1);
       }
 
-      await message(
+      await messageDialog(
         `設定を読み込みました。\nフォルダ: ${loaded.length}件復元${skipped > 0 ? `（見つからなかったフォルダ: ${skipped}件）` : ''}`,
         { title: '完了' }
       );
@@ -866,7 +866,7 @@ function App() {
       return parsed.settings;
     } catch (err) {
       console.error('[Settings] Failed to import settings:', err);
-      await message(`設定の読み込みに失敗しました:\n${err instanceof Error ? err.message : String(err)}`, { title: 'エラー', kind: 'error' });
+      await messageDialog(`設定の読み込みに失敗しました:\n${err instanceof Error ? err.message : String(err)}`, { title: 'エラー', kind: 'error' });
       return null;
     }
   };
@@ -929,7 +929,7 @@ function App() {
 
     } catch (err) {
       console.error("Failed to create project:", err);
-      await message(`プロジェクトの作成に失敗しました。\n理由: ${err instanceof Error ? err.message : String(err)}`, { title: 'エラー', kind: 'error' });
+      await messageDialog(`プロジェクトの作成に失敗しました。\n理由: ${err instanceof Error ? err.message : String(err)}`, { title: 'エラー', kind: 'error' });
     }
   };
 
@@ -986,7 +986,7 @@ function App() {
       }
     } catch (err) {
       console.error("Failed to rename file:", err);
-      await message(`リネームに失敗しました: ${err}`, { title: 'エラー', kind: 'error' });
+      await messageDialog(`リネームに失敗しました: ${err}`, { title: 'エラー', kind: 'error' });
     }
   };
 
