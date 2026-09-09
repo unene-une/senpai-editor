@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { X, ChevronUp, ChevronDown, Replace, Search } from 'lucide-react';
 import { replaceRange } from '../utils/textarea';
+import { scrollCaretIntoView } from '../utils/caret';
 
 interface SearchBarProps {
     content: string;
@@ -53,13 +54,9 @@ const SearchBar: React.FC<SearchBarProps> = ({ content, onContentChange, onClose
         textarea.focus();
         textarea.setSelectionRange(pos, pos + query.length);
 
-        // スクロール位置を合わせる
-        const linesBefore = content.substring(0, pos).split('\n');
-        const fontSize = parseFloat(getComputedStyle(textarea).fontSize);
-        const lineHeightPx = fontSize * 1.8;
-        const scrollTarget = (linesBefore.length - 1) * lineHeightPx - textarea.clientHeight / 3;
-        textarea.scrollTop = Math.max(0, scrollTarget);
-    }, [matches, query, content]);
+        // スクロール位置を実測して合わせる（縦書き・横書きどちらにも対応）
+        scrollCaretIntoView(textarea, pos);
+    }, [matches, query, textareaRef]);
 
     const goNext = useCallback(() => {
         const next = matches.length > 0 ? (currentMatch + 1) % matches.length : 0;

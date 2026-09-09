@@ -36,6 +36,7 @@ type FileBuffer = {
 };
 
 import { checkProofing, ProofingIssue } from "./utils/proofreader";
+import { scrollCaretIntoView } from "./utils/caret";
 import ProofingPanel from "./components/ProofingPanel";
 import SettingsModal from "./components/SettingsModal";
 import NewProjectModal from "./components/NewProjectModal";
@@ -771,14 +772,8 @@ function App() {
     textarea.focus();
     textarea.setSelectionRange(charIndex, charIndex + (lines[targetLine]?.length ?? 0));
 
-    // スクロール位置を合わせる（行の高さ × 折り返し考慮）
-    const lineHeightPx = settings.fontSize * 1.8;
-    // 視覚的な行数（折り返し考慮）を上から数える
-    let visualLine = 0;
-    for (let i = 0; i < targetLine; i++) {
-      visualLine += Math.max(1, Math.ceil(getStringWidth(lines[i]) / (settings.visualLineLength * 2)));
-    }
-    textarea.scrollTop = visualLine * lineHeightPx - textarea.clientHeight / 3;
+    // スクロール位置を実測して合わせる（縦書き・横書きどちらにも対応）
+    scrollCaretIntoView(textarea, charIndex);
   };
 
   const handleSaveSettings = (newSettings: AppSettings) => {
