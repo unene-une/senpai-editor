@@ -7,6 +7,7 @@ import { open as openDialog, save, ask, message } from '@tauri-apps/plugin-dialo
 import { writeTextFile, readDir } from '@tauri-apps/plugin-fs';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
+import { defaultSettings, AppSettings, createSettingsBackup, parseSettingsBackup } from './settings';
 
 // Define FileItem type locally for now
 interface FileItem {
@@ -52,30 +53,6 @@ interface ProjectConfig {
   fileCount: number;
   encoding: 'UTF-8' | 'Shift-JIS';
 }
-
-const defaultSettings = {
-  visualLineLength: 40,
-  fontSize: 18,
-  countLineLength: 40,
-  countLinesPerPage: 20,
-  columnsPerPage: 1,
-  showWhitespace: false,
-  verticalWriting: false,
-  theme: 'light' as 'light' | 'dark' | 'rainbow' | 'custom',
-  customColors: {
-    appBg: '#f6f6f6',
-    contentBg: '#ffffff',
-    editorText: '#333333',
-    sidebarBg: '#f0f0f0',
-    statusbarBg: '#e0e0e0',
-  },
-  presets: [
-    { id: 'default', name: '標準 (40x20)', countLineLength: 40, countLinesPerPage: 20, columnsPerPage: 1 }
-  ],
-  currentPresetId: 'default'
-};
-
-type AppSettings = typeof defaultSettings;
 
 // 全角=2、半角=1 で文字幅を計算する
 function getStringWidth(str: string): number {
@@ -124,6 +101,8 @@ function App() {
   const [currentFilePath, setCurrentFilePath] = useState<string | null>(null);
   const [folders, setFolders] = useState<FolderItem[]>([]);
   const [settings, setSettings] = useState(defaultSettings);
+  // 設定インポート後に Sidebar を強制的に再マウントし、localStorage の sidebarWidth を読み直させる
+  const [sidebarKey, setSidebarKey] = useState(0);
 
 
   const [currentEncoding, setCurrentEncoding] = useState("UTF-8");
@@ -823,6 +802,75 @@ function App() {
     saveSettingsToFile(newSettings);
   };
 
+  // 設定をJSONファイルに書き出す
+  const handleExportSettings = async (settingsToExport: AppSettings) => {
+    try {
+      const path = await save({
+        defaultPath: 'senpai-editor-settings.json',
+        filters: [{ name: 'JSON', extensions: ['json'] }]
+      });
+      if (!path) return; // キャンセル
+
+      const openFolders = folders.map(f => f.path);
+      const savedWidth = parseInt(localStorage.getItem('sidebarWidth') || '', 10);
+      const sidebarWidth = Number.isFinite(savedWidth) ? savedWidth : null;
+
+      const backup = createSettingsBackup(settingsToExport, openFolders, sidebarWidth);
+      await writeTextFile(path, JSON.stringify(backup, null, 2));
+      await message('設定を書き出しました。', { title: '完了' });
+    } catch (err) {
+      console.error('[Settings] Failed to export settings:', err);
+      await message(`設定の書き出しに失敗しました:\n${err}`, { title: 'エラー', kind: 'error' });
+    }
+  };
+
+  // JSONファイルから設定を読み込み、検証・適用する
+  const handleImportSettings = async (): Promise<AppSettings | null> => {
+    try {
+      const selected = await openDialog({
+        multiple: false,
+        directory: false,
+        filters: [{ name: 'JSON', extensions: ['json'] }]
+      });
+      if (!selected || typeof selected !== 'string') return null; // キャンセル
+
+      const { readFile } = await import('@tauri-apps/plugin-fs');
+      const bytes = await readFile(selected);
+      const text = new TextDecoder().decode(bytes);
+      const parsed = parseSettingsBackup(text);
+
+      // 設定を適用
+      handleSaveSettings(parsed.settings);
+
+      // フォルダをマージ（既に開いているものは除外し、見つからなかったものは数える）
+      const newPaths = parsed.openFolders.filter(p => !folders.some(f => f.path === p));
+      const loadedResults = await Promise.all(newPaths.map(loadFolderFromPath));
+      const loaded = loadedResults.filter((f): f is FolderItem => f !== null);
+      const skipped = loadedResults.length - loaded.length;
+
+      const next = [...folders, ...loaded];
+      saveFolderPaths(next);
+      setFolders(next);
+
+      // サイドバー幅を復元
+      if (parsed.sidebarWidth !== null) {
+        localStorage.setItem('sidebarWidth', String(parsed.sidebarWidth));
+        setSidebarKey(k => k + 1);
+      }
+
+      await message(
+        `設定を読み込みました。\nフォルダ: ${loaded.length}件復元${skipped > 0 ? `（見つからなかったフォルダ: ${skipped}件）` : ''}`,
+        { title: '完了' }
+      );
+
+      return parsed.settings;
+    } catch (err) {
+      console.error('[Settings] Failed to import settings:', err);
+      await message(`設定の読み込みに失敗しました:\n${err instanceof Error ? err.message : String(err)}`, { title: 'エラー', kind: 'error' });
+      return null;
+    }
+  };
+
   const handleCreateProject = async (config: ProjectConfig) => {
     try {
       const { mkdir, writeFile } = await import('@tauri-apps/plugin-fs');
@@ -978,6 +1026,7 @@ function App() {
   return (
     <main className={`app-container ${settings.theme === 'rainbow' ? 'theme-rainbow' : ''}`}>
       <Sidebar
+        key={sidebarKey}
         folders={folders}
         onSelect={handleSelectFileWrapper}
         onSettingsClick={() => setShowSettings(true)}
@@ -1061,6 +1110,8 @@ function App() {
           settings={settings}
           onSave={handleSaveSettings}
           onClose={() => setShowSettings(false)}
+          onExport={handleExportSettings}
+          onImport={handleImportSettings}
         />
       )}
 

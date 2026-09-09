@@ -36,9 +36,11 @@ interface SettingsModalProps {
     settings: Settings;
     onSave: (newSettings: Settings) => void;
     onClose: () => void;
+    onExport: (settings: Settings) => Promise<void>;
+    onImport: () => Promise<Settings | null>;
 }
 
-const SettingsModal: React.FC<SettingsModalProps> = ({ settings, onSave, onClose }) => {
+const SettingsModal: React.FC<SettingsModalProps> = ({ settings, onSave, onClose, onExport, onImport }) => {
     const [localSettings, setLocalSettings] = useState<Settings>(settings);
     // プリセット新規保存用ダイアログの表示状態。window.prompt は WebView2 で常に null を
     // 返すため、CustomDialog をこの FocusTrap のサブツリー内にインラインで描画する
@@ -149,6 +151,11 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ settings, onSave, onClose
         e.preventDefault();
         onSave(localSettings);
         onClose();
+    };
+
+    const handleImportClick = async () => {
+        const result = await onImport();
+        if (result) setLocalSettings(result);
     };
 
     return (
@@ -281,6 +288,19 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ settings, onSave, onClose
                                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                                     <label htmlFor="columnsPerPage">1ページあたりの段組み数:</label>
                                     <input type="number" id="columnsPerPage" name="columnsPerPage" value={localSettings.columnsPerPage} onChange={handleChange} style={{ width: '60px', padding: '0.3rem', background: '#f6f6f6', color: '#333333', border: '1px solid #cccccc' }} />
+                                </div>
+                            </div>
+                        </div>
+
+                        <div>
+                            <h3 style={{ fontSize: '16px', marginBottom: '0.8rem' }}>バックアップ (Backup)</h3>
+                            <div style={{ padding: '1rem', background: 'var(--app-bg, #f6f6f6)', borderRadius: '4px', border: '1px solid var(--sidebar-border, #cccccc)' }}>
+                                <p style={{ fontSize: '12px', opacity: 0.8, margin: 0 }}>
+                                    テーマ・プリセット・表示設定・開いているフォルダをJSONファイルに保存／復元できます。
+                                </p>
+                                <div style={{ display: 'flex', gap: '8px', marginTop: '0.8rem' }}>
+                                    <button type="button" onClick={() => onExport(localSettings)} style={{ fontSize: '12px', padding: '6px 12px', cursor: 'pointer' }}>設定を書き出す</button>
+                                    <button type="button" onClick={handleImportClick} style={{ fontSize: '12px', padding: '6px 12px', cursor: 'pointer' }}>設定を読み込む</button>
                                 </div>
                             </div>
                         </div>
