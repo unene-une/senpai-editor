@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { X, ChevronUp, ChevronDown, Replace, Search } from 'lucide-react';
+import { replaceRange } from '../utils/textarea';
 
 interface SearchBarProps {
     content: string;
@@ -86,6 +87,16 @@ const SearchBar: React.FC<SearchBarProps> = ({ content, onContentChange, onClose
     const handleReplaceCurrent = () => {
         if (matches.length === 0) return;
         const pos = matches[currentMatch];
+        const textarea = textareaRef.current;
+        if (textarea) {
+            const ok = replaceRange(textarea, pos, pos + query.length, replaceText);
+            if (ok) {
+                // execCommand が input イベントを発火させ、onChange 経由で React state も更新される
+                textarea.setSelectionRange(pos + replaceText.length, pos + replaceText.length);
+                return;
+            }
+        }
+        // フォールバック: アンドゥ履歴は失われるが動作は維持する
         const newContent = content.substring(0, pos) + replaceText + content.substring(pos + query.length);
         onContentChange(newContent);
     };
@@ -96,6 +107,12 @@ const SearchBar: React.FC<SearchBarProps> = ({ content, onContentChange, onClose
             const flags = matchCase ? 'g' : 'gi';
             const regex = new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), flags);
             const newContent = content.replace(regex, replaceText);
+            const textarea = textareaRef.current;
+            if (textarea) {
+                const ok = replaceRange(textarea, 0, content.length, newContent);
+                if (ok) return; // アンドゥ1回で全置換を取り消せる
+            }
+            // フォールバック: アンドゥ履歴は失われるが動作は維持する
             onContentChange(newContent);
         } catch {
             // 無効な正規表現は無視
