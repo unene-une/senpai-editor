@@ -354,6 +354,8 @@ function App() {
         }
       } catch (err) {
         console.error('[Watch] Failed to read file for comparison:', err);
+        // 読み込めない(削除・リネームで消えた)ファイルは再読み込みを提案する対象ではないため、ダイアログを出さずに終了する
+        return;
       }
 
       isAskingReloadRef.current = true;
@@ -902,6 +904,9 @@ function App() {
       const parentDir = await dirname(file.path);
       const newPath = await join(parentDir, newName);
 
+      // リネームは自アプリの変更なので、旧パス・新パスの両方で発生するwatchイベントを無視させる
+      markSaved(file.path);
+      markSaved(newPath);
       await rename(file.path, newPath);
 
       // Update folder list
