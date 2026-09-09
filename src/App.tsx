@@ -38,6 +38,7 @@ type FileBuffer = {
 
 import { checkProofing, ProofingIssue } from "./utils/proofreader";
 import { scrollCaretIntoView } from "./utils/caret";
+import { focusForIme } from "./utils/textarea";
 import ProofingPanel from "./components/ProofingPanel";
 import SettingsModal from "./components/SettingsModal";
 import NewProjectModal from "./components/NewProjectModal";
@@ -470,6 +471,18 @@ function App() {
     return () => window.removeEventListener('keydown', handler);
   }, []);
 
+  // Alt+Tab などで戻ってきたとき、本文にフォーカスが残っていても IME が入力欄を見失っていることがあるので当て直す
+  useEffect(() => {
+    const handler = () => {
+      const ta = textareaRef.current;
+      if (ta && document.activeElement === ta) {
+        requestAnimationFrame(() => focusForIme(ta));
+      }
+    };
+    window.addEventListener('focus', handler);
+    return () => window.removeEventListener('focus', handler);
+  }, []);
+
   useEffect(() => {
     const root = document.documentElement;
     if (settings.theme === 'dark') {
@@ -691,7 +704,7 @@ function App() {
     textarea.scrollTop = buffer.scrollTop ?? 0;
     textarea.scrollLeft = buffer.scrollLeft ?? 0;
     // サイドバークリックでフォーカスが失われているため、戻さないと次のクリックで選択範囲が上書きされる
-    textarea.focus();
+    focusForIme(textarea);
   }, [currentFilePath]);
 
   const handleSave = async () => {
@@ -791,7 +804,7 @@ function App() {
     }
 
     // カーソルを該当行の先頭に移動
-    textarea.focus();
+    focusForIme(textarea);
     textarea.setSelectionRange(charIndex, charIndex + (lines[targetLine]?.length ?? 0));
 
     // スクロール位置を実測して合わせる（縦書き・横書きどちらにも対応）

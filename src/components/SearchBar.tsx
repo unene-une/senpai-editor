@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { X, ChevronUp, ChevronDown, Replace, Search } from 'lucide-react';
-import { replaceRange } from '../utils/textarea';
+import { replaceRange, focusForIme } from '../utils/textarea';
 import { scrollCaretIntoView } from '../utils/caret';
 
 interface SearchBarProps {
@@ -51,7 +51,7 @@ const SearchBar: React.FC<SearchBarProps> = ({ content, onContentChange, onClose
         if (!textarea) return;
 
         const pos = matches[index];
-        textarea.focus();
+        focusForIme(textarea);
         textarea.setSelectionRange(pos, pos + query.length);
 
         // スクロール位置を実測して合わせる（縦書き・横書きどちらにも対応）

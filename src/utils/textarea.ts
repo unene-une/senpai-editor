@@ -16,7 +16,7 @@ export function replaceRange(
     const before = textarea.value;
     const expected = before.substring(0, start) + text + before.substring(end);
 
-    textarea.focus();
+    focusForIme(textarea);
     textarea.setSelectionRange(start, end);
     try {
         // 非推奨 API だが、アンドゥ履歴を維持できる標準の代替手段が存在しない
@@ -28,4 +28,26 @@ export function replaceRange(
     // execCommand が「成功」を返しても何も挿入されない環境があるため、期待する全文と厳密に比較する
     // （挿入文字列の先頭一致だけだと、空文字への置換で何も起きなかった場合を見逃す）
     return textarea.value === expected;
+}
+
+/**
+ * textarea にフォーカスを当て直し、IME に入力欄の状態を再通知させる。
+ *
+ * Chromium/WebView2 では、ウィンドウが OS のフォーカスを取り戻したときや、スクリプトで
+ * フォーカスを移したときに、IME へ入力欄の情報（キャレット位置など）が再通知されないことがある。
+ * その状態で日本語を打つと変換ウィンドウが画面左上に浮いて出る。一度 blur してから focus し直すと
+ * 再通知が走るので、スクリプトからフォーカスを当てる箇所は必ずこれを通す。
+ * 選択範囲とスクロール位置は維持する。
+ */
+export function focusForIme(textarea: HTMLTextAreaElement): void {
+    const { selectionStart, selectionEnd, selectionDirection, scrollTop, scrollLeft } = textarea;
+
+    if (document.activeElement === textarea) {
+        textarea.blur();
+    }
+    textarea.focus({ preventScroll: true });
+
+    textarea.setSelectionRange(selectionStart, selectionEnd, selectionDirection ?? undefined);
+    textarea.scrollTop = scrollTop;
+    textarea.scrollLeft = scrollLeft;
 }
