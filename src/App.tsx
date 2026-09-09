@@ -266,7 +266,16 @@ function App() {
 
   // 外部変更検出: currentFilePath が変わるたびにウォッチャーをセットアップ
   const isAskingReloadRef = useRef(false);
-  const isSavingRef = useRef(false); // 自アプリ保存中はイベントを無視
+  // パスごとに「自アプリが最後に書き込んだ時刻」を記録し、直後の watch イベントを無視する。
+  // グローバルな真偽値だと、あるファイルの保存中は他ファイルの本当の外部変更まで握りつぶしてしまう
+  const recentlySavedRef = useRef<Map<string, number>>(new Map());
+  const markSaved = (path: string) => {
+    recentlySavedRef.current.set(path, Date.now());
+  };
+  const wasRecentlySaved = (path: string, withinMs = 2000) => {
+    const savedAt = recentlySavedRef.current.get(path);
+    return savedAt !== undefined && Date.now() - savedAt < withinMs;
+  };
   useEffect(() => {
     if (!currentFilePath) return;
 
@@ -278,7 +287,7 @@ function App() {
         const { watchImmediate } = await import('@tauri-apps/plugin-fs');
         unwatchFn = await watchImmediate(watchedPath, (_event) => {
 
-          if (isAskingReloadRef.current || isSavingRef.current) return;
+          if (isAskingReloadRef.current || wasRecentlySaved(watchedPath)) return;
           handleExternalChange(watchedPath);
         }, { recursive: false });
 
@@ -288,7 +297,7 @@ function App() {
     };
 
     const handleExternalChange = async (filePath: string) => {
-      if (isAskingReloadRef.current) return;
+      if (isAskingReloadRef.current || wasRecentlySaved(filePath)) return;
 
       try {
         const { readFile } = await import('@tauri-apps/plugin-fs');
@@ -341,11 +350,10 @@ function App() {
       let savedCount = 0;
       for (const path of dirtyPaths) {
         const buf = fileBuffers.current.get(path);
-        // 保存不要、または実在のパスでないものはスキップ
-        if (!buf || !buf.isDirty || path.startsWith('Untitled')) continue;
+        // 保存不要ならスキップ
+        if (!buf || !buf.isDirty) continue;
 
         try {
-          isSavingRef.current = true;
           if (buf.encoding === 'Shift-JIS') {
             const { writeFile } = await import('@tauri-apps/plugin-fs');
             const unicodeCodes = Encoding.stringToCode(buf.content);
@@ -356,18 +364,12 @@ function App() {
             await writeTextFile(path, buf.content);
           }
 
+          markSaved(path);
           fileBuffers.current.set(path, { ...buf, isDirty: false, originalContent: buf.content });
-          setDirtyFileSet(prev => {
-            const next = new Set(prev);
-            next.delete(path);
-            return next;
-          });
-          dirtyFileSetRef.current = new Set(Array.from(dirtyFileSetRef.current).filter(p => p !== path));
+          unmarkDirty(path);
           savedCount++;
         } catch (err) {
           console.error(`Auto-save failed for ${path}:`, err);
-        } finally {
-          setTimeout(() => { isSavingRef.current = false; }, 1000);
         }
       }
 
@@ -672,7 +674,6 @@ function App() {
   }, [currentFilePath]);
 
   const handleSave = async () => {
-    isSavingRef.current = true;
     try {
       let savedPath: string | null = currentFilePath;
 
@@ -705,6 +706,7 @@ function App() {
 
       // dirty フラグをクリア
       if (savedPath) {
+        markSaved(savedPath);
         fileBuffers.current.set(savedPath, {
           content, encoding: currentEncoding, isDirty: false,
           originalContent: content,
@@ -714,9 +716,6 @@ function App() {
     } catch (err) {
       console.error('Failed to save file:', err);
       await message(`保存に失敗しました:\n${err}`, { title: 'エラー', kind: 'error' });
-    } finally {
-      // 少し遅らせてから isSavingRef を解除（watchイベントが非同期で来る可能性）
-      setTimeout(() => { isSavingRef.current = false; }, 1000);
     }
   };
   useEffect(() => {
