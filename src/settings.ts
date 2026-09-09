@@ -107,7 +107,7 @@ function sanitizePresets(input: unknown): Preset[] {
 }
 
 // settings オブジェクトをフィールドごとにデフォルト値と突き合わせて安全な値にする
-function sanitizeSettings(input: unknown): AppSettings {
+export function sanitizeSettings(input: unknown): AppSettings {
   const raw = (input && typeof input === 'object') ? (input as Record<string, unknown>) : {};
 
   const visualLineLength = isFinitePositiveNumber(raw.visualLineLength) ? raw.visualLineLength : defaultSettings.visualLineLength;

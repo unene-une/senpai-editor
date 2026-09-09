@@ -7,7 +7,7 @@ import { askDialog, messageDialog, saveDialog, openDialog } from './utils/dialog
 import { writeTextFile, readDir } from '@tauri-apps/plugin-fs';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
-import { defaultSettings, AppSettings, createSettingsBackup, parseSettingsBackup } from './settings';
+import { defaultSettings, AppSettings, createSettingsBackup, parseSettingsBackup, sanitizeSettings } from './settings';
 
 // Define FileItem type locally for now
 interface FileItem {
@@ -135,7 +135,8 @@ function App() {
       const saved = localStorage.getItem('app-settings');
       if (saved) {
         const savedSettings = JSON.parse(saved);
-        setSettings(prev => ({ ...prev, ...savedSettings }));
+        // 以前のバージョンで保存された壊れた値（0やNaNなど）も、ここで通すことで起動時に修復する
+        setSettings(sanitizeSettings(savedSettings));
 
       }
     } catch (err) {
