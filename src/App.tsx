@@ -178,13 +178,29 @@ function App() {
     const restoreWindowSize = async () => {
       try {
         const saved = localStorage.getItem('window-size');
-        if (saved) {
-          const { width, height } = JSON.parse(saved);
-          const { getCurrentWindow } = await import('@tauri-apps/api/window');
-          const { LogicalSize } = await import('@tauri-apps/api/dpi');
-          const win = getCurrentWindow();
-          await win.setSize(new LogicalSize(width, height));
-        }
+        if (!saved) return;
+        const parsed = JSON.parse(saved);
+        // 保存値は論理px（unit: 'logical'）のものだけを信頼する。
+        // 旧形式（unitが無い = 物理pxがそのまま入っている値）は
+        // 表示スケール分だけ膨張した壊れた値なので、変換せず無視する。
+        if (parsed.unit !== 'logical') return;
+        const { width, height } = parsed;
+        if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return;
+
+        const { getCurrentWindow, currentMonitor } = await import('@tauri-apps/api/window');
+        const { LogicalSize } = await import('@tauri-apps/api/dpi');
+
+        const monitor = await currentMonitor();
+        if (!monitor) return; // モニタ情報が取れない場合はデフォルトサイズのままにする（誤ったサイズを適用するより安全）
+
+        // 画面の作業領域（タスクバーを除く）を超えるサイズにはしない。
+        // これを怠るとWebView2が描画面を確保できずフリーズすることがある。
+        const bounds = monitor.workArea.size.toLogical(monitor.scaleFactor);
+        const w = Math.min(Math.max(width, 400), bounds.width);
+        const h = Math.min(Math.max(height, 300), bounds.height);
+
+        const win = getCurrentWindow();
+        await win.setSize(new LogicalSize(w, h));
       } catch (err) {
         console.error("[Window] Failed to restore window size:", err);
       }
@@ -194,19 +210,40 @@ function App() {
 
   useEffect(() => {
     let unlisten: any;
+    let saveTimer: ReturnType<typeof setTimeout> | undefined;
     const setupResizeListener = async () => {
       try {
         const { getCurrentWindow } = await import('@tauri-apps/api/window');
         const win = getCurrentWindow();
         unlisten = await win.onResized(({ payload: size }) => {
-          localStorage.setItem('window-size', JSON.stringify({ width: size.width, height: size.height }));
+          // onResized はドラッグ中に連続発火するため、保存はデバウンスしてIPCの連打を避ける
+          if (saveTimer) clearTimeout(saveTimer);
+          saveTimer = setTimeout(async () => {
+            try {
+              // size は物理px（PhysicalSize）。そのまま保存すると復元時に
+              // LogicalSizeとして適用され、表示スケール分だけ膨張してしまうため
+              // 論理pxに変換してから保存する。
+              const factor = await win.scaleFactor();
+              const logical = size.toLogical(factor);
+              localStorage.setItem('window-size', JSON.stringify({
+                width: Math.round(logical.width),
+                height: Math.round(logical.height),
+                unit: 'logical',
+              }));
+            } catch (err) {
+              console.error("[Window] Failed to save window size:", err);
+            }
+          }, 300);
         });
       } catch (err) {
         console.error("[Window] Failed to setup resize listener:", err);
       }
     };
     setupResizeListener();
-    return () => { if (typeof unlisten === 'function') unlisten(); };
+    return () => {
+      if (saveTimer) clearTimeout(saveTimer);
+      if (typeof unlisten === 'function') unlisten();
+    };
   }, []);
 
   // onCloseRequested クロージャ内で参照できるように ref で持つ
