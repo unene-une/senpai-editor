@@ -5,9 +5,10 @@ interface SearchBarProps {
     content: string;
     onContentChange: (newContent: string) => void;
     onClose: () => void;
+    textareaRef: React.RefObject<HTMLTextAreaElement | null>;
 }
 
-const SearchBar: React.FC<SearchBarProps> = ({ content, onContentChange, onClose }) => {
+const SearchBar: React.FC<SearchBarProps> = ({ content, onContentChange, onClose, textareaRef }) => {
     const [inputValue, setInputValue] = useState(''); // 入力欄の表示値（常に同期）
     const [query, setQuery] = useState('');            // 検索クエリ（IME確定後のみ更新）
     const [replaceText, setReplaceText] = useState('');
@@ -44,7 +45,7 @@ const SearchBar: React.FC<SearchBarProps> = ({ content, onContentChange, onClose
     // textarea にフォーカスして選択
     const selectMatch = useCallback((index: number) => {
         if (matches.length === 0 || index < 0) return;
-        const textarea = document.querySelector('.editor-textarea') as HTMLTextAreaElement;
+        const textarea = textareaRef.current;
         if (!textarea) return;
 
         const pos = matches[index];

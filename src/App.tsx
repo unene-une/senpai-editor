@@ -118,6 +118,9 @@ function App() {
   const [showNewProjectModal, setShowNewProjectModal] = useState(false);
   // isDirty state を廃止し dirtyFileSet に一本化
 
+  // textarea への参照（querySelectorでの都度探索を廃止し一本化）
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
   // ファイルバッファ: ファイルパス -> { content, encoding, isDirty, originalContent }
   const fileBuffers = useRef<Map<string, FileBuffer>>(new Map());
   // 未保存ファイルセット（再描画のためにstateにも持つ）
@@ -556,7 +559,9 @@ function App() {
       console.error("Failed to open folder:", err);
     }
   };
-  handleOpenFolderRef.current = handleOpenFolder;
+  useEffect(() => {
+    handleOpenFolderRef.current = handleOpenFolder;
+  });
 
   const handleRemoveFolder = (folderPath: string) => {
     setFolders(prev => {
@@ -669,7 +674,9 @@ function App() {
       setTimeout(() => { isSavingRef.current = false; }, 1000);
     }
   };
-  handleSaveRef.current = handleSave;
+  useEffect(() => {
+    handleSaveRef.current = handleSave;
+  });
 
   const handleHelpClick = async () => {
     try {
@@ -704,7 +711,7 @@ function App() {
   };
 
   const handleJumpToLine = (lineNumber: number) => {
-    const textarea = document.querySelector('.editor-textarea') as HTMLTextAreaElement;
+    const textarea = textareaRef.current;
     if (!textarea || lineNumber <= 0) return;
 
     // 対象行の先頭文字インデックスを計算
@@ -893,6 +900,7 @@ function App() {
       />
       <div className="content-area">
         <Editor
+          textareaRef={textareaRef}
           content={content}
           onChange={handleContentChange}
           settings={{
@@ -917,6 +925,7 @@ function App() {
 
         {showSearch && (
           <SearchBar
+            textareaRef={textareaRef}
             content={content}
             onContentChange={handleContentChange}
             onClose={() => setShowSearch(false)}

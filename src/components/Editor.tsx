@@ -10,9 +10,10 @@ interface EditorProps {
         showWhitespace?: boolean;
     };
     onContextMenu?: (e: React.MouseEvent) => void;
+    textareaRef: React.RefObject<HTMLTextAreaElement | null>;
 }
 
-const Editor: React.FC<EditorProps> = ({ content, onChange, settings, onContextMenu }) => {
+const Editor: React.FC<EditorProps> = ({ content, onChange, settings, onContextMenu, textareaRef }) => {
     const lineHeightPx = Math.round(settings.fontSize * 1.8);
     const commonStyle: CSSProperties = {
         fontSize: `${settings.fontSize}px`,
@@ -120,6 +121,7 @@ const Editor: React.FC<EditorProps> = ({ content, onChange, settings, onContextM
                 </div>
             )}
             <textarea
+                ref={textareaRef}
                 value={content}
                 onChange={(e) => onChange(e.target.value)}
                 style={textareaStyle}
