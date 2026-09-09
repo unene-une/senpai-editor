@@ -10,15 +10,17 @@ interface EditorProps {
         showWhitespace?: boolean;
     };
     onContextMenu?: (e: React.MouseEvent) => void;
+    textareaRef: React.RefObject<HTMLTextAreaElement | null>;
 }
 
-const Editor: React.FC<EditorProps> = ({ content, onChange, settings, onContextMenu }) => {
+const Editor: React.FC<EditorProps> = ({ content, onChange, settings, onContextMenu, textareaRef }) => {
     const lineHeightPx = Math.round(settings.fontSize * 1.8);
     const commonStyle: CSSProperties = {
         fontSize: `${settings.fontSize}px`,
         width: settings.verticalWriting ? '100%' : `calc(${settings.lineLength + 1}em + 4rem)`,
         height: settings.verticalWriting ? `calc(${settings.lineLength + 1}em + 4rem)` : '100%',
         maxWidth: '100%',
+        maxHeight: '100%',
         lineHeight: `${lineHeightPx}px`,
         fontFamily: '"BIZ UDGothic", "MS Gothic", "Cascadia Code", "Consolas", "Inconsolata", monospace',
         padding: '2rem',
@@ -37,7 +39,9 @@ const Editor: React.FC<EditorProps> = ({ content, onChange, settings, onContextM
         outline: 'none',
         border: 'none',
         resize: 'none',
-        height: '100%',
+        // 縦書き時は commonStyle 側で1行の文字数（幅=lineLength）を高さとして制限しているため、
+        // ここで無条件に '100%' を上書きすると設定が無視されてしまう
+        height: settings.verticalWriting ? commonStyle.height : '100%',
         overflowY: 'auto',
         background: 'transparent',
         color: 'inherit',
@@ -50,7 +54,8 @@ const Editor: React.FC<EditorProps> = ({ content, onChange, settings, onContextM
         position: 'absolute',
         top: 0,
         left: 0,
-        height: '100%',
+        // textareaStyle と同様、縦書き時は commonStyle の高さ（文字数制限）を維持する
+        height: settings.verticalWriting ? commonStyle.height : '100%',
         color: 'transparent',
         pointerEvents: 'none',
         zIndex: 0,
@@ -120,6 +125,7 @@ const Editor: React.FC<EditorProps> = ({ content, onChange, settings, onContextM
                 </div>
             )}
             <textarea
+                ref={textareaRef}
                 value={content}
                 onChange={(e) => onChange(e.target.value)}
                 style={textareaStyle}

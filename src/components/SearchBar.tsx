@@ -1,13 +1,16 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { X, ChevronUp, ChevronDown, Replace, Search } from 'lucide-react';
+import { replaceRange, focusForIme } from '../utils/textarea';
+import { scrollCaretIntoView } from '../utils/caret';
 
 interface SearchBarProps {
     content: string;
     onContentChange: (newContent: string) => void;
     onClose: () => void;
+    textareaRef: React.RefObject<HTMLTextAreaElement | null>;
 }
 
-const SearchBar: React.FC<SearchBarProps> = ({ content, onContentChange, onClose }) => {
+const SearchBar: React.FC<SearchBarProps> = ({ content, onContentChange, onClose, textareaRef }) => {
     const [inputValue, setInputValue] = useState(''); // 入力欄の表示値（常に同期）
     const [query, setQuery] = useState('');            // 検索クエリ（IME確定後のみ更新）
     const [replaceText, setReplaceText] = useState('');
@@ -44,20 +47,16 @@ const SearchBar: React.FC<SearchBarProps> = ({ content, onContentChange, onClose
     // textarea にフォーカスして選択
     const selectMatch = useCallback((index: number) => {
         if (matches.length === 0 || index < 0) return;
-        const textarea = document.querySelector('.editor-textarea') as HTMLTextAreaElement;
+        const textarea = textareaRef.current;
         if (!textarea) return;
 
         const pos = matches[index];
-        textarea.focus();
+        focusForIme(textarea);
         textarea.setSelectionRange(pos, pos + query.length);
 
-        // スクロール位置を合わせる
-        const linesBefore = content.substring(0, pos).split('\n');
-        const fontSize = parseFloat(getComputedStyle(textarea).fontSize);
-        const lineHeightPx = fontSize * 1.8;
-        const scrollTarget = (linesBefore.length - 1) * lineHeightPx - textarea.clientHeight / 3;
-        textarea.scrollTop = Math.max(0, scrollTarget);
-    }, [matches, query, content]);
+        // スクロール位置を実測して合わせる（縦書き・横書きどちらにも対応）
+        scrollCaretIntoView(textarea, pos);
+    }, [matches, query, textareaRef]);
 
     const goNext = useCallback(() => {
         const next = matches.length > 0 ? (currentMatch + 1) % matches.length : 0;
@@ -85,6 +84,16 @@ const SearchBar: React.FC<SearchBarProps> = ({ content, onContentChange, onClose
     const handleReplaceCurrent = () => {
         if (matches.length === 0) return;
         const pos = matches[currentMatch];
+        const textarea = textareaRef.current;
+        if (textarea) {
+            const ok = replaceRange(textarea, pos, pos + query.length, replaceText);
+            if (ok) {
+                // execCommand が input イベントを発火させ、onChange 経由で React state も更新される
+                textarea.setSelectionRange(pos + replaceText.length, pos + replaceText.length);
+                return;
+            }
+        }
+        // フォールバック: アンドゥ履歴は失われるが動作は維持する
         const newContent = content.substring(0, pos) + replaceText + content.substring(pos + query.length);
         onContentChange(newContent);
     };
@@ -95,6 +104,12 @@ const SearchBar: React.FC<SearchBarProps> = ({ content, onContentChange, onClose
             const flags = matchCase ? 'g' : 'gi';
             const regex = new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), flags);
             const newContent = content.replace(regex, replaceText);
+            const textarea = textareaRef.current;
+            if (textarea) {
+                const ok = replaceRange(textarea, 0, content.length, newContent);
+                if (ok) return; // アンドゥ1回で全置換を取り消せる
+            }
+            // フォールバック: アンドゥ履歴は失われるが動作は維持する
             onContentChange(newContent);
         } catch {
             // 無効な正規表現は無視

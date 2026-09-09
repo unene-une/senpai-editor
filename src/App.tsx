@@ -1,12 +1,13 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useLayoutEffect, useRef, useCallback } from "react";
 import "./App.css";
 import Editor from "./components/Editor";
 import Sidebar from "./components/Sidebar";
 import StatusBar from "./components/StatusBar";
-import { open as openDialog, save, ask } from '@tauri-apps/plugin-dialog';
+import { askDialog, messageDialog, saveDialog, openDialog } from './utils/dialog';
 import { writeTextFile, readDir } from '@tauri-apps/plugin-fs';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
+import { defaultSettings, AppSettings, createSettingsBackup, parseSettingsBackup, sanitizeSettings } from './settings';
 
 // Define FileItem type locally for now
 interface FileItem {
@@ -23,13 +24,26 @@ interface FolderItem {
 }
 
 // ファイルバッファの型定義（コンポーネント外に定義してレンダリングごとの再定義を回避）
-type FileBuffer = { content: string; encoding: string; isDirty: boolean; originalContent: string };
+// caret*/scroll* は既存バッファとの互換のため省略可能。無い場合は 0 として扱う
+type FileBuffer = {
+  content: string;
+  encoding: string;
+  isDirty: boolean;
+  originalContent: string;
+  caretStart?: number;
+  caretEnd?: number;
+  scrollTop?: number;
+  scrollLeft?: number;
+};
 
 import { checkProofing, ProofingIssue } from "./utils/proofreader";
+import { scrollCaretIntoView } from "./utils/caret";
+import { focusForIme } from "./utils/textarea";
 import ProofingPanel from "./components/ProofingPanel";
 import SettingsModal from "./components/SettingsModal";
 import NewProjectModal from "./components/NewProjectModal";
 import SearchBar from "./components/SearchBar";
+import { CustomDialog } from "./components/CustomDialog";
 import { CheckCircle } from "lucide-react";
 import Encoding from 'encoding-japanese';
 
@@ -40,30 +54,6 @@ interface ProjectConfig {
   fileCount: number;
   encoding: 'UTF-8' | 'Shift-JIS';
 }
-
-const defaultSettings = {
-  visualLineLength: 40,
-  fontSize: 18,
-  countLineLength: 40,
-  countLinesPerPage: 20,
-  columnsPerPage: 1,
-  showWhitespace: false,
-  verticalWriting: false,
-  theme: 'light' as 'light' | 'dark' | 'rainbow' | 'custom',
-  customColors: {
-    appBg: '#f6f6f6',
-    contentBg: '#ffffff',
-    editorText: '#333333',
-    sidebarBg: '#f0f0f0',
-    statusbarBg: '#e0e0e0',
-  },
-  presets: [
-    { id: 'default', name: '標準 (40x20)', countLineLength: 40, countLinesPerPage: 20, columnsPerPage: 1 }
-  ],
-  currentPresetId: 'default'
-};
-
-type AppSettings = typeof defaultSettings;
 
 // 全角=2、半角=1 で文字幅を計算する
 function getStringWidth(str: string): number {
@@ -112,11 +102,16 @@ function App() {
   const [currentFilePath, setCurrentFilePath] = useState<string | null>(null);
   const [folders, setFolders] = useState<FolderItem[]>([]);
   const [settings, setSettings] = useState(defaultSettings);
+  // 設定インポート後に Sidebar を強制的に再マウントし、localStorage の sidebarWidth を読み直させる
+  const [sidebarKey, setSidebarKey] = useState(0);
 
 
   const [currentEncoding, setCurrentEncoding] = useState("UTF-8");
   const [showNewProjectModal, setShowNewProjectModal] = useState(false);
   // isDirty state を廃止し dirtyFileSet に一本化
+
+  // textarea への参照（querySelectorでの都度探索を廃止し一本化）
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // ファイルバッファ: ファイルパス -> { content, encoding, isDirty, originalContent }
   const fileBuffers = useRef<Map<string, FileBuffer>>(new Map());
@@ -141,7 +136,8 @@ function App() {
       const saved = localStorage.getItem('app-settings');
       if (saved) {
         const savedSettings = JSON.parse(saved);
-        setSettings(prev => ({ ...prev, ...savedSettings }));
+        // 以前のバージョンで保存された壊れた値（0やNaNなど）も、ここで通すことで起動時に修復する
+        setSettings(sanitizeSettings(savedSettings));
 
       }
     } catch (err) {
@@ -163,13 +159,29 @@ function App() {
     const restoreWindowSize = async () => {
       try {
         const saved = localStorage.getItem('window-size');
-        if (saved) {
-          const { width, height } = JSON.parse(saved);
-          const { getCurrentWindow } = await import('@tauri-apps/api/window');
-          const { LogicalSize } = await import('@tauri-apps/api/dpi');
-          const win = getCurrentWindow();
-          await win.setSize(new LogicalSize(width, height));
-        }
+        if (!saved) return;
+        const parsed = JSON.parse(saved);
+        // 保存値は論理px（unit: 'logical'）のものだけを信頼する。
+        // 旧形式（unitが無い = 物理pxがそのまま入っている値）は
+        // 表示スケール分だけ膨張した壊れた値なので、変換せず無視する。
+        if (parsed.unit !== 'logical') return;
+        const { width, height } = parsed;
+        if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return;
+
+        const { getCurrentWindow, currentMonitor } = await import('@tauri-apps/api/window');
+        const { LogicalSize } = await import('@tauri-apps/api/dpi');
+
+        const monitor = await currentMonitor();
+        if (!monitor) return; // モニタ情報が取れない場合はデフォルトサイズのままにする（誤ったサイズを適用するより安全）
+
+        // 画面の作業領域（タスクバーを除く）を超えるサイズにはしない。
+        // これを怠るとWebView2が描画面を確保できずフリーズすることがある。
+        const bounds = monitor.workArea.size.toLogical(monitor.scaleFactor);
+        const w = Math.min(Math.max(width, 400), bounds.width);
+        const h = Math.min(Math.max(height, 300), bounds.height);
+
+        const win = getCurrentWindow();
+        await win.setSize(new LogicalSize(w, h));
       } catch (err) {
         console.error("[Window] Failed to restore window size:", err);
       }
@@ -179,19 +191,40 @@ function App() {
 
   useEffect(() => {
     let unlisten: any;
+    let saveTimer: ReturnType<typeof setTimeout> | undefined;
     const setupResizeListener = async () => {
       try {
         const { getCurrentWindow } = await import('@tauri-apps/api/window');
         const win = getCurrentWindow();
         unlisten = await win.onResized(({ payload: size }) => {
-          localStorage.setItem('window-size', JSON.stringify({ width: size.width, height: size.height }));
+          // onResized はドラッグ中に連続発火するため、保存はデバウンスしてIPCの連打を避ける
+          if (saveTimer) clearTimeout(saveTimer);
+          saveTimer = setTimeout(async () => {
+            try {
+              // size は物理px（PhysicalSize）。そのまま保存すると復元時に
+              // LogicalSizeとして適用され、表示スケール分だけ膨張してしまうため
+              // 論理pxに変換してから保存する。
+              const factor = await win.scaleFactor();
+              const logical = size.toLogical(factor);
+              localStorage.setItem('window-size', JSON.stringify({
+                width: Math.round(logical.width),
+                height: Math.round(logical.height),
+                unit: 'logical',
+              }));
+            } catch (err) {
+              console.error("[Window] Failed to save window size:", err);
+            }
+          }, 300);
         });
       } catch (err) {
         console.error("[Window] Failed to setup resize listener:", err);
       }
     };
     setupResizeListener();
-    return () => { if (typeof unlisten === 'function') unlisten(); };
+    return () => {
+      if (saveTimer) clearTimeout(saveTimer);
+      if (typeof unlisten === 'function') unlisten();
+    };
   }, []);
 
   // onCloseRequested クロージャ内で参照できるように ref で持つ
@@ -223,7 +256,7 @@ function App() {
           const msg = dirtyPaths.length === 1
             ? '変更が保存されていません。終了しますか？'
             : `${dirtyPaths.length}件のファイルに未保存の変更があります:\n${names}\n\n終了しますか？`;
-          ask(msg, {
+          askDialog(msg, {
             title: '警告',
             kind: 'warning',
             okLabel: 'はい',
@@ -251,7 +284,16 @@ function App() {
 
   // 外部変更検出: currentFilePath が変わるたびにウォッチャーをセットアップ
   const isAskingReloadRef = useRef(false);
-  const isSavingRef = useRef(false); // 自アプリ保存中はイベントを無視
+  // パスごとに「自アプリが最後に書き込んだ時刻」を記録し、直後の watch イベントを無視する。
+  // グローバルな真偽値だと、あるファイルの保存中は他ファイルの本当の外部変更まで握りつぶしてしまう
+  const recentlySavedRef = useRef<Map<string, number>>(new Map());
+  const markSaved = (path: string) => {
+    recentlySavedRef.current.set(path, Date.now());
+  };
+  const wasRecentlySaved = (path: string, withinMs = 2000) => {
+    const savedAt = recentlySavedRef.current.get(path);
+    return savedAt !== undefined && Date.now() - savedAt < withinMs;
+  };
   useEffect(() => {
     if (!currentFilePath) return;
 
@@ -263,7 +305,7 @@ function App() {
         const { watchImmediate } = await import('@tauri-apps/plugin-fs');
         unwatchFn = await watchImmediate(watchedPath, (_event) => {
 
-          if (isAskingReloadRef.current || isSavingRef.current) return;
+          if (isAskingReloadRef.current || wasRecentlySaved(watchedPath)) return;
           handleExternalChange(watchedPath);
         }, { recursive: false });
 
@@ -273,7 +315,7 @@ function App() {
     };
 
     const handleExternalChange = async (filePath: string) => {
-      if (isAskingReloadRef.current) return;
+      if (isAskingReloadRef.current || wasRecentlySaved(filePath)) return;
 
       try {
         const { readFile } = await import('@tauri-apps/plugin-fs');
@@ -293,11 +335,13 @@ function App() {
         }
       } catch (err) {
         console.error('[Watch] Failed to read file for comparison:', err);
+        // 読み込めない(削除・リネームで消えた)ファイルは再読み込みを提案する対象ではないため、ダイアログを出さずに終了する
+        return;
       }
 
       isAskingReloadRef.current = true;
       try {
-        const confirmed = await ask(
+        const confirmed = await askDialog(
           `ファイルが外部で変更されました:\n${filePath.split(/[\\/]/).pop()}\n\n再読み込みしますか？`,
           { title: 'ファイル変更検出', kind: 'info', okLabel: 'はい', cancelLabel: 'いいえ' }
         );
@@ -326,11 +370,12 @@ function App() {
       let savedCount = 0;
       for (const path of dirtyPaths) {
         const buf = fileBuffers.current.get(path);
-        // 保存不要、または実在のパスでないものはスキップ
-        if (!buf || !buf.isDirty || path.startsWith('Untitled')) continue;
+        // 保存不要ならスキップ
+        if (!buf || !buf.isDirty) continue;
 
         try {
-          isSavingRef.current = true;
+          // 書き込み中に watch イベントが先着しても無視できるよう、書く前にも記録する
+          markSaved(path);
           if (buf.encoding === 'Shift-JIS') {
             const { writeFile } = await import('@tauri-apps/plugin-fs');
             const unicodeCodes = Encoding.stringToCode(buf.content);
@@ -341,18 +386,12 @@ function App() {
             await writeTextFile(path, buf.content);
           }
 
+          markSaved(path);
           fileBuffers.current.set(path, { ...buf, isDirty: false, originalContent: buf.content });
-          setDirtyFileSet(prev => {
-            const next = new Set(prev);
-            next.delete(path);
-            return next;
-          });
-          dirtyFileSetRef.current = new Set(Array.from(dirtyFileSetRef.current).filter(p => p !== path));
+          unmarkDirty(path);
           savedCount++;
         } catch (err) {
           console.error(`Auto-save failed for ${path}:`, err);
-        } finally {
-          setTimeout(() => { isSavingRef.current = false; }, 1000);
         }
       }
 
@@ -430,6 +469,18 @@ function App() {
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
+  }, []);
+
+  // Alt+Tab などで戻ってきたとき、本文にフォーカスが残っていても IME が入力欄を見失っていることがあるので当て直す
+  useEffect(() => {
+    const handler = () => {
+      const ta = textareaRef.current;
+      if (ta && document.activeElement === ta) {
+        requestAnimationFrame(() => focusForIme(ta));
+      }
+    };
+    window.addEventListener('focus', handler);
+    return () => window.removeEventListener('focus', handler);
   }, []);
 
   useEffect(() => {
@@ -556,7 +607,9 @@ function App() {
       console.error("Failed to open folder:", err);
     }
   };
-  handleOpenFolderRef.current = handleOpenFolder;
+  useEffect(() => {
+    handleOpenFolderRef.current = handleOpenFolder;
+  });
 
   const handleRemoveFolder = (folderPath: string) => {
     setFolders(prev => {
@@ -587,6 +640,10 @@ function App() {
         encoding: encoding === 'SJIS' ? 'Shift-JIS' : 'UTF-8',
         isDirty: false,
         originalContent: normalized,
+        caretStart: 0,
+        caretEnd: 0,
+        scrollTop: 0,
+        scrollLeft: 0,
       });
       unmarkDirty(path);
     } catch (err) {
@@ -597,15 +654,27 @@ function App() {
   const handleSelectFileWrapper = async (file: FileItem) => {
     if (file.type !== 'file') return;
 
-    // 1. 現在ファイルの状態をバッファに保存
+    // 1. 現在ファイルの状態をバッファに保存（content/isDirty は handleContentChange が
+    //    毎回更新済みなので再計算せず、既存バッファに caret/スクロール位置だけ足し込む）
     if (currentFilePathRef.current) {
-      const existing = fileBuffers.current.get(currentFilePathRef.current);
-      fileBuffers.current.set(currentFilePathRef.current, {
-        content,
-        encoding: currentEncoding,
-        isDirty: dirtyFileSet.has(currentFilePathRef.current),
-        originalContent: existing?.originalContent ?? content,
-      });
+      const path = currentFilePathRef.current;
+      const existing = fileBuffers.current.get(path);
+      const textarea = textareaRef.current;
+      const caretFields = {
+        caretStart: textarea?.selectionStart ?? 0,
+        caretEnd: textarea?.selectionEnd ?? 0,
+        scrollTop: textarea?.scrollTop ?? 0,
+        scrollLeft: textarea?.scrollLeft ?? 0,
+      };
+      fileBuffers.current.set(path, existing
+        ? { ...existing, ...caretFields }
+        : {
+          content,
+          encoding: currentEncoding,
+          isDirty: dirtyFileSet.has(path),
+          originalContent: content,
+          ...caretFields,
+        });
     }
 
     // 2. 新ファイルがバッファにあれば従下保存済みの内容を復元
@@ -621,12 +690,29 @@ function App() {
     }
   };
 
+  // ファイル切替後、DOM更新が確定してから（描画前に）カーソル位置とスクロール位置を復元する
+  useLayoutEffect(() => {
+    if (!currentFilePath) return;
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    const buffer = fileBuffers.current.get(currentFilePath);
+    if (!buffer) return;
+
+    const caretStart = buffer.caretStart ?? 0;
+    const caretEnd = buffer.caretEnd ?? 0;
+    textarea.setSelectionRange(caretStart, caretEnd);
+    textarea.scrollTop = buffer.scrollTop ?? 0;
+    textarea.scrollLeft = buffer.scrollLeft ?? 0;
+    // サイドバークリックでフォーカスが失われているため、戻さないと次のクリックで選択範囲が上書きされる
+    focusForIme(textarea);
+  }, [currentFilePath]);
+
   const handleSave = async () => {
-    isSavingRef.current = true;
     try {
       let savedPath: string | null = currentFilePath;
 
       if (savedPath) {
+        markSaved(savedPath); // 書き込み中の watch イベント対策（完了後にも再記録する）
         const { writeFile } = await import('@tauri-apps/plugin-fs');
         if (currentEncoding === 'Shift-JIS') {
           const unicodeCodes = Encoding.stringToCode(content);
@@ -636,10 +722,11 @@ function App() {
           await writeTextFile(savedPath, content);
         }
       } else {
-        const selected = await save({
+        const selected = await saveDialog({
           filters: [{ name: 'Text', extensions: ['txt'] }]
         });
         if (selected) {
+          markSaved(selected);
           if (currentEncoding === 'Shift-JIS') {
             const { writeFile } = await import('@tauri-apps/plugin-fs');
             const unicodeCodes = Encoding.stringToCode(content);
@@ -655,6 +742,7 @@ function App() {
 
       // dirty フラグをクリア
       if (savedPath) {
+        markSaved(savedPath);
         fileBuffers.current.set(savedPath, {
           content, encoding: currentEncoding, isDirty: false,
           originalContent: content,
@@ -663,13 +751,12 @@ function App() {
       }
     } catch (err) {
       console.error('Failed to save file:', err);
-      alert(`保存に失敗しました:\n${err}`);
-    } finally {
-      // 少し遅らせてから isSavingRef を解除（watchイベントが非同期で来る可能性）
-      setTimeout(() => { isSavingRef.current = false; }, 1000);
+      await messageDialog(`保存に失敗しました:\n${err}`, { title: 'エラー', kind: 'error' });
     }
   };
-  handleSaveRef.current = handleSave;
+  useEffect(() => {
+    handleSaveRef.current = handleSave;
+  });
 
   const handleHelpClick = async () => {
     try {
@@ -687,7 +774,8 @@ function App() {
       try {
         window.open('/help.html', '_blank');
       } catch (err2) {
-        alert(`ヘルプマニュアルを開けませんでした。\nエラー: ${err}`);
+        console.error("Failed to open help fallback:", err2);
+        await messageDialog(`ヘルプマニュアルを開けませんでした。\nエラー: ${err}`, { title: 'エラー', kind: 'error' });
       }
     }
   };
@@ -704,7 +792,7 @@ function App() {
   };
 
   const handleJumpToLine = (lineNumber: number) => {
-    const textarea = document.querySelector('.editor-textarea') as HTMLTextAreaElement;
+    const textarea = textareaRef.current;
     if (!textarea || lineNumber <= 0) return;
 
     // 対象行の先頭文字インデックスを計算
@@ -716,22 +804,85 @@ function App() {
     }
 
     // カーソルを該当行の先頭に移動
-    textarea.focus();
+    focusForIme(textarea);
     textarea.setSelectionRange(charIndex, charIndex + (lines[targetLine]?.length ?? 0));
 
-    // スクロール位置を合わせる（行の高さ × 折り返し考慮）
-    const lineHeightPx = settings.fontSize * 1.8;
-    // 視覚的な行数（折り返し考慮）を上から数える
-    let visualLine = 0;
-    for (let i = 0; i < targetLine; i++) {
-      visualLine += Math.max(1, Math.ceil(getStringWidth(lines[i]) / (settings.visualLineLength * 2)));
-    }
-    textarea.scrollTop = visualLine * lineHeightPx - textarea.clientHeight / 3;
+    // スクロール位置を実測して合わせる（縦書き・横書きどちらにも対応）
+    scrollCaretIntoView(textarea, charIndex);
   };
 
   const handleSaveSettings = (newSettings: AppSettings) => {
     setSettings(newSettings);
     saveSettingsToFile(newSettings);
+  };
+
+  // 設定をJSONファイルに書き出す
+  const handleExportSettings = async (settingsToExport: AppSettings) => {
+    try {
+      const path = await saveDialog({
+        defaultPath: 'senpai-editor-settings.json',
+        filters: [{ name: 'JSON', extensions: ['json'] }]
+      });
+      if (!path) return; // キャンセル
+
+      const openFolders = folders.map(f => f.path);
+      const savedWidth = parseInt(localStorage.getItem('sidebarWidth') || '', 10);
+      const sidebarWidth = Number.isFinite(savedWidth) ? savedWidth : null;
+
+      const backup = createSettingsBackup(settingsToExport, openFolders, sidebarWidth);
+      await writeTextFile(path, JSON.stringify(backup, null, 2));
+      await messageDialog('設定を書き出しました。', { title: '完了' });
+    } catch (err) {
+      console.error('[Settings] Failed to export settings:', err);
+      await messageDialog(`設定の書き出しに失敗しました:\n${err}`, { title: 'エラー', kind: 'error' });
+    }
+  };
+
+  // JSONファイルから設定を読み込み、検証・適用する
+  const handleImportSettings = async (): Promise<AppSettings | null> => {
+    try {
+      const selected = await openDialog({
+        multiple: false,
+        directory: false,
+        filters: [{ name: 'JSON', extensions: ['json'] }]
+      });
+      if (!selected || typeof selected !== 'string') return null; // キャンセル
+
+      const { readFile } = await import('@tauri-apps/plugin-fs');
+      const bytes = await readFile(selected);
+      const text = new TextDecoder().decode(bytes);
+      const parsed = parseSettingsBackup(text);
+
+      // 設定を適用
+      handleSaveSettings(parsed.settings);
+
+      // フォルダをマージ（既に開いているものは除外し、見つからなかったものは数える）
+      const newPaths = parsed.openFolders.filter(p => !folders.some(f => f.path === p));
+      const loadedResults = await Promise.all(newPaths.map(loadFolderFromPath));
+      const loaded = loadedResults.filter((f): f is FolderItem => f !== null);
+      const skipped = loadedResults.length - loaded.length;
+
+      const next = [...folders, ...loaded];
+      saveFolderPaths(next);
+      setFolders(next);
+
+      // サイドバー幅を復元
+      if (parsed.sidebarWidth !== null) {
+        localStorage.setItem('sidebarWidth', String(parsed.sidebarWidth));
+        setSidebarKey(k => k + 1);
+      }
+
+      await messageDialog(
+        `設定を読み込みました。\nフォルダ: ${loaded.length}件復元${skipped > 0 ? `（見つからなかったフォルダ: ${skipped}件）` : ''}`,
+        { title: '完了' }
+      );
+
+      return parsed.settings;
+    } catch (err) {
+      console.error('[Settings] Failed to import settings:', err);
+      await messageDialog(`設定の読み込みに失敗しました:\n${err instanceof Error ? err.message : String(err)}`, { title: 'エラー', kind: 'error' });
+      return null;
+    }
   };
 
   const handleCreateProject = async (config: ProjectConfig) => {
@@ -792,12 +943,20 @@ function App() {
 
     } catch (err) {
       console.error("Failed to create project:", err);
-      alert(`プロジェクトの作成に失敗しました。\n理由: ${err instanceof Error ? err.message : String(err)}`);
+      await messageDialog(`プロジェクトの作成に失敗しました。\n理由: ${err instanceof Error ? err.message : String(err)}`, { title: 'エラー', kind: 'error' });
     }
   };
 
-  const handleRenameFile = async (file: FileItem) => {
-    const newName = prompt("新しいファイル名を入力してください (拡張子 .txt を含む):", file.name);
+  // リネーム用ダイアログの対象（開いているときだけ非null）。window.prompt は WebView2 で
+  // 常に null を返すため、アプリ内蔵の CustomDialog で入力を受け取る
+  const [renameTarget, setRenameTarget] = useState<FileItem | null>(null);
+
+  const handleRenameFile = (file: FileItem) => {
+    setRenameTarget(file);
+    setContextMenu(null);
+  };
+
+  const performRename = async (file: FileItem, newName: string) => {
     if (!newName || newName === file.name) return;
 
     try {
@@ -807,6 +966,9 @@ function App() {
       const parentDir = await dirname(file.path);
       const newPath = await join(parentDir, newName);
 
+      // リネームは自アプリの変更なので、旧パス・新パスの両方で発生するwatchイベントを無視させる
+      markSaved(file.path);
+      markSaved(newPath);
       await rename(file.path, newPath);
 
       // Update folder list
@@ -836,11 +998,9 @@ function App() {
       if (currentFilePath === file.path) {
         setCurrentFilePath(newPath);
       }
-
-      setContextMenu(null);
     } catch (err) {
       console.error("Failed to rename file:", err);
-      alert(`リネームに失敗しました: ${err}`);
+      await messageDialog(`リネームに失敗しました: ${err}`, { title: 'エラー', kind: 'error' });
     }
   };
 
@@ -880,6 +1040,7 @@ function App() {
   return (
     <main className={`app-container ${settings.theme === 'rainbow' ? 'theme-rainbow' : ''}`}>
       <Sidebar
+        key={sidebarKey}
         folders={folders}
         onSelect={handleSelectFileWrapper}
         onSettingsClick={() => setShowSettings(true)}
@@ -893,6 +1054,7 @@ function App() {
       />
       <div className="content-area">
         <Editor
+          textareaRef={textareaRef}
           content={content}
           onChange={handleContentChange}
           settings={{
@@ -917,6 +1079,7 @@ function App() {
 
         {showSearch && (
           <SearchBar
+            textareaRef={textareaRef}
             content={content}
             onContentChange={handleContentChange}
             onClose={() => setShowSearch(false)}
@@ -961,6 +1124,8 @@ function App() {
           settings={settings}
           onSave={handleSaveSettings}
           onClose={() => setShowSettings(false)}
+          onExport={handleExportSettings}
+          onImport={handleImportSettings}
         />
       )}
 
@@ -1013,6 +1178,22 @@ function App() {
           </button>
         </div>
       )}
+
+      <CustomDialog
+        open={!!renameTarget}
+        inputMode
+        title="名前の変更"
+        message="新しいファイル名を入力してください (拡張子 .txt を含む):"
+        defaultValue={renameTarget?.name}
+        onConfirm={(value) => {
+          const target = renameTarget;
+          setRenameTarget(null);
+          if (target && value && value !== target.name) {
+            performRename(target, value);
+          }
+        }}
+        onCancel={() => setRenameTarget(null)}
+      />
     </main>
   );
 }

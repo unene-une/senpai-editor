@@ -1,6 +1,9 @@
 import React, { useState } from 'react';
 import { X } from 'lucide-react';
 import FocusTrap from 'focus-trap-react';
+import { messageDialog, askDialog } from '../utils/dialog';
+import { CustomDialog } from './CustomDialog';
+import { defaultSettings } from '../settings';
 
 interface Preset {
     id: string;
@@ -34,10 +37,39 @@ interface SettingsModalProps {
     settings: Settings;
     onSave: (newSettings: Settings) => void;
     onClose: () => void;
+    onExport: (settings: Settings) => Promise<void>;
+    onImport: () => Promise<Settings | null>;
 }
 
-const SettingsModal: React.FC<SettingsModalProps> = ({ settings, onSave, onClose }) => {
+// 数値欄の下限。空欄・0・NaNなど不正な値のまま保存されると、エディタが潰れたり
+// ページ計算が0除算でInfinityになったりするため、保存時にこの値未満ならデフォルトへ戻す
+const NUMERIC_MIN = {
+    visualLineLength: 10,
+    fontSize: 8,
+    countLineLength: 1,
+    countLinesPerPage: 1,
+    columnsPerPage: 1,
+} as const;
+
+// 数値欄を保存用に正規化する。入力中（handleChange）では空欄を許容したいので、
+// ここでは呼ばない。保存・プリセット確定のタイミングでのみ適用する
+function normalizeNumbers(s: Settings): Settings {
+    const result = { ...s };
+    for (const key of Object.keys(NUMERIC_MIN) as (keyof typeof NUMERIC_MIN)[]) {
+        const min = NUMERIC_MIN[key];
+        const value = result[key];
+        if (typeof value !== 'number' || !Number.isFinite(value) || value < min) {
+            result[key] = defaultSettings[key];
+        }
+    }
+    return result;
+}
+
+const SettingsModal: React.FC<SettingsModalProps> = ({ settings, onSave, onClose, onExport, onImport }) => {
     const [localSettings, setLocalSettings] = useState<Settings>(settings);
+    // プリセット新規保存用ダイアログの表示状態。window.prompt は WebView2 で常に null を
+    // 返すため、CustomDialog をこの FocusTrap のサブツリー内にインラインで描画する
+    const [showPresetNameDialog, setShowPresetNameDialog] = useState(false);
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
         const { name, value, type } = e.target;
@@ -53,6 +85,9 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ settings, onSave, onClose
                 }
             }));
         } else {
+            // ここでは min によるクランプをしない。入力中に空欄になるのは打ち直しの途中で
+            // 普通に起こることなので許容し、不正な値の補正は保存・プリセット確定時
+            // （normalizeNumbers）にだけ行う
             setLocalSettings(prev => ({
                 ...prev,
                 [name]: type === 'checkbox' ? checked : (type === 'number' ? (parseInt(value, 10) || 0) : value)
@@ -75,49 +110,63 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ settings, onSave, onClose
     };
 
     const handleSaveAsNewPreset = () => {
-        const name = prompt('新しいプリセット名を入力してください:');
+        setShowPresetNameDialog(true);
+    };
+
+    const confirmSaveAsNewPreset = (name: string) => {
+        setShowPresetNameDialog(false);
         if (!name) return;
 
+        // 0やNaNのまま新規プリセットを作らせないよう、正規化した値から取る
+        const normalized = normalizeNumbers(localSettings);
         const newPreset: Preset = {
             id: Date.now().toString(),
             name: name,
-            countLineLength: localSettings.countLineLength,
-            countLinesPerPage: localSettings.countLinesPerPage,
-            columnsPerPage: localSettings.columnsPerPage
+            countLineLength: normalized.countLineLength,
+            countLinesPerPage: normalized.countLinesPerPage,
+            columnsPerPage: normalized.columnsPerPage
         };
 
-        setLocalSettings(prev => ({
-            ...prev,
-            presets: [...prev.presets, newPreset],
+        setLocalSettings({
+            ...normalized,
+            presets: [...normalized.presets, newPreset],
             currentPresetId: newPreset.id
-        }));
+        });
     };
 
-    const handleUpdatePreset = () => {
+    const handleUpdatePreset = async () => {
         if (localSettings.currentPresetId === 'default') {
-            alert('標準プリセットは上書きできません。新しいプリセットとして保存してください。');
+            await messageDialog('標準プリセットは上書きできません。新しいプリセットとして保存してください。', { title: '確認', kind: 'warning' });
             return;
         }
 
-        setLocalSettings(prev => ({
-            ...prev,
-            presets: prev.presets.map(p => p.id === prev.currentPresetId ? {
+        // 0やNaNのままプリセットを上書きさせないよう、正規化した値から取る
+        const normalized = normalizeNumbers(localSettings);
+        setLocalSettings({
+            ...normalized,
+            presets: normalized.presets.map(p => p.id === normalized.currentPresetId ? {
                 ...p,
-                countLineLength: prev.countLineLength,
-                countLinesPerPage: prev.countLinesPerPage,
-                columnsPerPage: prev.columnsPerPage
+                countLineLength: normalized.countLineLength,
+                countLinesPerPage: normalized.countLinesPerPage,
+                columnsPerPage: normalized.columnsPerPage
             } : p)
-        }));
-        alert('プリセットを更新しました。');
+        });
+        await messageDialog('プリセットを更新しました。', { title: '完了' });
     };
 
-    const handleDeletePreset = () => {
+    const handleDeletePreset = async () => {
         if (localSettings.currentPresetId === 'default') {
-            alert('標準プリセットは削除できません。');
+            await messageDialog('標準プリセットは削除できません。', { title: '確認', kind: 'warning' });
             return;
         }
 
-        if (!confirm('このプリセットを削除してもよろしいですか？')) return;
+        const confirmed = await askDialog('このプリセットを削除してもよろしいですか？', {
+            title: '確認',
+            kind: 'warning',
+            okLabel: '削除',
+            cancelLabel: 'キャンセル'
+        });
+        if (!confirmed) return;
 
         const newPresets = localSettings.presets.filter(p => p.id !== localSettings.currentPresetId);
         setLocalSettings(prev => ({
@@ -132,8 +181,13 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ settings, onSave, onClose
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
-        onSave(localSettings);
+        onSave(normalizeNumbers(localSettings));
         onClose();
+    };
+
+    const handleImportClick = async () => {
+        const result = await onImport();
+        if (result) setLocalSettings(result);
     };
 
     return (
@@ -178,11 +232,11 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ settings, onSave, onClose
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
                                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                                     <label htmlFor="visualLineLength">エディタの幅 (文字数):</label>
-                                    <input type="number" id="visualLineLength" name="visualLineLength" value={localSettings.visualLineLength} onChange={handleChange} style={{ width: '60px', padding: '0.3rem', background: 'var(--app-bg, #f6f6f6)', color: 'var(--app-text, #333333)', border: '1px solid var(--sidebar-border, #cccccc)' }} />
+                                    <input type="number" id="visualLineLength" name="visualLineLength" min={NUMERIC_MIN.visualLineLength} value={localSettings.visualLineLength} onChange={handleChange} style={{ width: '60px', padding: '0.3rem', background: 'var(--app-bg, #f6f6f6)', color: 'var(--app-text, #333333)', border: '1px solid var(--sidebar-border, #cccccc)' }} />
                                 </div>
                                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                                     <label htmlFor="fontSize">フォントサイズ (px):</label>
-                                    <input type="number" id="fontSize" name="fontSize" value={localSettings.fontSize} onChange={handleChange} style={{ width: '60px', padding: '0.3rem', background: 'var(--app-bg, #f6f6f6)', color: 'var(--app-text, #333333)', border: '1px solid var(--sidebar-border, #cccccc)' }} />
+                                    <input type="number" id="fontSize" name="fontSize" min={NUMERIC_MIN.fontSize} value={localSettings.fontSize} onChange={handleChange} style={{ width: '60px', padding: '0.3rem', background: 'var(--app-bg, #f6f6f6)', color: 'var(--app-text, #333333)', border: '1px solid var(--sidebar-border, #cccccc)' }} />
                                 </div>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
                                     <input type="checkbox" id="showWhitespace" name="showWhitespace" checked={localSettings.showWhitespace} onChange={handleChange} />
@@ -228,7 +282,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ settings, onSave, onClose
                             )}
                         </div>
 
-                        <div>
+                        <div style={{ borderBottom: '1px solid var(--sidebar-border, #cccccc)', paddingBottom: '1rem' }}>
                             <h3 style={{ fontSize: '16px', marginBottom: '0.8rem' }}>ページ計算の基準 (Manuscript)</h3>
 
                             {/* Preset Management UI */}
@@ -257,15 +311,28 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ settings, onSave, onClose
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
                                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                                     <label htmlFor="countLineLength">1行あたりの文字数:</label>
-                                    <input type="number" id="countLineLength" name="countLineLength" value={localSettings.countLineLength} onChange={handleChange} style={{ width: '60px', padding: '0.3rem', background: '#f6f6f6', color: '#333333', border: '1px solid #cccccc' }} />
+                                    <input type="number" id="countLineLength" name="countLineLength" min={NUMERIC_MIN.countLineLength} value={localSettings.countLineLength} onChange={handleChange} style={{ width: '60px', padding: '0.3rem', background: '#f6f6f6', color: '#333333', border: '1px solid #cccccc' }} />
                                 </div>
                                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                                     <label htmlFor="countLinesPerPage">1段あたりの行数:</label>
-                                    <input type="number" id="countLinesPerPage" name="countLinesPerPage" value={localSettings.countLinesPerPage} onChange={handleChange} style={{ width: '60px', padding: '0.3rem', background: '#f6f6f6', color: '#333333', border: '1px solid #cccccc' }} />
+                                    <input type="number" id="countLinesPerPage" name="countLinesPerPage" min={NUMERIC_MIN.countLinesPerPage} value={localSettings.countLinesPerPage} onChange={handleChange} style={{ width: '60px', padding: '0.3rem', background: '#f6f6f6', color: '#333333', border: '1px solid #cccccc' }} />
                                 </div>
                                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                                     <label htmlFor="columnsPerPage">1ページあたりの段組み数:</label>
-                                    <input type="number" id="columnsPerPage" name="columnsPerPage" value={localSettings.columnsPerPage} onChange={handleChange} style={{ width: '60px', padding: '0.3rem', background: '#f6f6f6', color: '#333333', border: '1px solid #cccccc' }} />
+                                    <input type="number" id="columnsPerPage" name="columnsPerPage" min={NUMERIC_MIN.columnsPerPage} value={localSettings.columnsPerPage} onChange={handleChange} style={{ width: '60px', padding: '0.3rem', background: '#f6f6f6', color: '#333333', border: '1px solid #cccccc' }} />
+                                </div>
+                            </div>
+                        </div>
+
+                        <div>
+                            <h3 style={{ fontSize: '16px', marginBottom: '0.8rem' }}>バックアップ (Backup)</h3>
+                            <div style={{ padding: '1rem', background: 'var(--app-bg, #f6f6f6)', borderRadius: '4px', border: '1px solid var(--sidebar-border, #cccccc)' }}>
+                                <p style={{ fontSize: '12px', opacity: 0.8, margin: 0 }}>
+                                    テーマ・プリセット・表示設定・開いているフォルダをJSONファイルに保存／復元できます。
+                                </p>
+                                <div style={{ display: 'flex', gap: '8px', marginTop: '0.8rem' }}>
+                                    <button type="button" onClick={() => onExport(localSettings)} style={{ fontSize: '12px', padding: '6px 12px', cursor: 'pointer' }}>設定を書き出す</button>
+                                    <button type="button" onClick={handleImportClick} style={{ fontSize: '12px', padding: '6px 12px', cursor: 'pointer' }}>設定を読み込む</button>
                                 </div>
                             </div>
                         </div>
@@ -284,6 +351,15 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ settings, onSave, onClose
                         </button>
                     </form>
                 </div>
+
+                <CustomDialog
+                    open={showPresetNameDialog}
+                    inputMode
+                    title="新規プリセット"
+                    message="新しいプリセット名を入力してください:"
+                    onConfirm={confirmSaveAsNewPreset}
+                    onCancel={() => setShowPresetNameDialog(false)}
+                />
             </div>
         </FocusTrap>
     );
