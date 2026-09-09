@@ -1,4 +1,4 @@
-import { useState, useEffect, useLayoutEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from "react";
 import "./App.css";
 import Editor from "./components/Editor";
 import Sidebar from "./components/Sidebar";
@@ -37,6 +37,7 @@ type FileBuffer = {
 };
 
 import { checkProofing, ProofingIssue } from "./utils/proofreader";
+import { countPureChars } from "./utils/textStats";
 import { scrollCaretIntoView } from "./utils/caret";
 import { focusForIme } from "./utils/textarea";
 import ProofingPanel from "./components/ProofingPanel";
@@ -112,6 +113,8 @@ function App() {
 
   // textarea への参照（querySelectorでの都度探索を廃止し一本化）
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // 選択範囲（ステータスバーの選択文字数表示用）。選択が無ければ null
+  const [selectionRange, setSelectionRange] = useState<{ start: number; end: number } | null>(null);
 
   // ファイルバッファ: ファイルパス -> { content, encoding, isDirty, originalContent }
   const fileBuffers = useRef<Map<string, FileBuffer>>(new Map());
@@ -483,6 +486,30 @@ function App() {
     return () => window.removeEventListener('focus', handler);
   }, []);
 
+  // 選択範囲の追跡（ステータスバーの「選択: n字」表示用）。
+  // selectionchange はマウス・キーボード・setSelectionRange のいずれによる
+  // textarea の選択変更でも発火するため、このリスナー1つで全経路をカバーできる。
+  useEffect(() => {
+    let rafId: number | null = null;
+    const handler = () => {
+      if (rafId !== null) return; // 1フレームにつき1回に間引く
+      rafId = requestAnimationFrame(() => {
+        rafId = null;
+        const ta = textareaRef.current;
+        if (ta && document.activeElement === ta && ta.selectionStart !== ta.selectionEnd) {
+          setSelectionRange({ start: ta.selectionStart, end: ta.selectionEnd });
+        } else {
+          setSelectionRange(null);
+        }
+      });
+    };
+    document.addEventListener('selectionchange', handler);
+    return () => {
+      document.removeEventListener('selectionchange', handler);
+      if (rafId !== null) cancelAnimationFrame(rafId);
+    };
+  }, []);
+
   useEffect(() => {
     const root = document.documentElement;
     if (settings.theme === 'dark') {
@@ -703,6 +730,10 @@ function App() {
     textarea.setSelectionRange(caretStart, caretEnd);
     textarea.scrollTop = buffer.scrollTop ?? 0;
     textarea.scrollLeft = buffer.scrollLeft ?? 0;
+    // 復元直後のカーソルは通常コラプス（選択なし）だが、念のため一旦クリアしておく。
+    // 実際に選択範囲だった場合は setSelectionRange により selectionchange イベントが
+    // 発火し、上の useEffect が selectionRange を再設定する
+    setSelectionRange(null);
     // サイドバークリックでフォーカスが失われているため、戻さないと次のクリックで選択範囲が上書きされる
     focusForIme(textarea);
   }, [currentFilePath]);
@@ -1037,6 +1068,14 @@ function App() {
   const totalLinesCount = calculateTotalLines();
   const pageCount = totalLinesCount / (settings.countLinesPerPage * settings.columnsPerPage);
 
+  // 改行・空白を除いた実文字数（なろう・pixiv・入稿の字数基準に合わせる）
+  const pureCharCount = useMemo(() => countPureChars(content), [content]);
+  // 選択範囲がある場合のみ、その範囲の実文字数を計算する
+  const selectionCharCount = useMemo(
+    () => selectionRange ? countPureChars(content.slice(selectionRange.start, selectionRange.end)) : null,
+    [content, selectionRange]
+  );
+
   return (
     <main className={`app-container ${settings.theme === 'rainbow' ? 'theme-rainbow' : ''}`}>
       <Sidebar
@@ -1087,7 +1126,9 @@ function App() {
         )}
 
         <StatusBar
-          charCount={content.length}
+          charCount={pureCharCount}
+          rawCharCount={content.length}
+          selectionCount={selectionCharCount}
           lineCount={content.split('\n').length}
           pageCount={pageCount}
           encoding={currentEncoding}
