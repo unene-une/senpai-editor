@@ -354,6 +354,8 @@ function App() {
         if (!buf || !buf.isDirty) continue;
 
         try {
+          // 書き込み中に watch イベントが先着しても無視できるよう、書く前にも記録する
+          markSaved(path);
           if (buf.encoding === 'Shift-JIS') {
             const { writeFile } = await import('@tauri-apps/plugin-fs');
             const unicodeCodes = Encoding.stringToCode(buf.content);
@@ -678,6 +680,7 @@ function App() {
       let savedPath: string | null = currentFilePath;
 
       if (savedPath) {
+        markSaved(savedPath); // 書き込み中の watch イベント対策（完了後にも再記録する）
         const { writeFile } = await import('@tauri-apps/plugin-fs');
         if (currentEncoding === 'Shift-JIS') {
           const unicodeCodes = Encoding.stringToCode(content);
@@ -691,6 +694,7 @@ function App() {
           filters: [{ name: 'Text', extensions: ['txt'] }]
         });
         if (selected) {
+          markSaved(selected);
           if (currentEncoding === 'Shift-JIS') {
             const { writeFile } = await import('@tauri-apps/plugin-fs');
             const unicodeCodes = Encoding.stringToCode(content);

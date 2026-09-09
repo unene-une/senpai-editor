@@ -13,6 +13,9 @@ export function replaceRange(
     end: number,
     text: string,
 ): boolean {
+    const before = textarea.value;
+    const expected = before.substring(0, start) + text + before.substring(end);
+
     textarea.focus();
     textarea.setSelectionRange(start, end);
     try {
@@ -22,7 +25,7 @@ export function replaceRange(
     } catch {
         return false;
     }
-    // execCommand が「成功」を返しても何も挿入されない環境があるため、実際に反映されたか確認する
-    const inserted = textarea.value.substring(start, start + text.length);
-    return inserted === text;
+    // execCommand が「成功」を返しても何も挿入されない環境があるため、期待する全文と厳密に比較する
+    // （挿入文字列の先頭一致だけだと、空文字への置換で何も起きなかった場合を見逃す）
+    return textarea.value === expected;
 }
