@@ -286,6 +286,8 @@ function App() {
   }, []);
 
   // 外部変更検出: currentFilePath が変わるたびにウォッチャーをセットアップ
+  // isAskingReloadRef は「読み込み〜ダイアログ表示〜応答待ち」の間ずっと立てておくガードで、
+  // handleExternalChange の先頭で即座に true にし、抜けるルート全てを finally で戻す
   const isAskingReloadRef = useRef(false);
   // パスごとに「自アプリが最後に書き込んだ時刻」を記録し、直後の watch イベントを無視する。
   // グローバルな真偽値だと、あるファイルの保存中は他ファイルの本当の外部変更まで握りつぶしてしまう
@@ -297,11 +299,15 @@ function App() {
     const savedAt = recentlySavedRef.current.get(path);
     return savedAt !== undefined && Date.now() - savedAt < withinMs;
   };
+  // 「いいえ」で見送った外部変更の内容を記憶し（パス→正規化済み内容）、
+  // 同じ内容について何度も再確認しないようにする
+  const declinedExternalContentRef = useRef<Map<string, string>>(new Map());
   useEffect(() => {
     if (!currentFilePath) return;
 
     let unwatchFn: (() => void) | null = null;
     const watchedPath = currentFilePath;
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
     const setupWatch = async () => {
       try {
@@ -309,7 +315,12 @@ function App() {
         unwatchFn = await watchImmediate(watchedPath, (_event) => {
 
           if (isAskingReloadRef.current || wasRecentlySaved(watchedPath)) return;
-          handleExternalChange(watchedPath);
+          // Windows は1回の保存で複数イベントを投げるのでまとめる
+          if (debounceTimer !== null) clearTimeout(debounceTimer);
+          debounceTimer = setTimeout(() => {
+            debounceTimer = null;
+            handleExternalChange(watchedPath);
+          }, 500);
         }, { recursive: false });
 
       } catch (err) {
@@ -318,7 +329,10 @@ function App() {
     };
 
     const handleExternalChange = async (filePath: string) => {
+      // 読み込み前にガードを立てる。debounce 後とはいえ、読み込み〜ダイアログ応答待ちの間に
+      // 届いたイベントがすり抜けて何度もダイアログを出してしまわないようにするため
       if (isAskingReloadRef.current || wasRecentlySaved(filePath)) return;
+      isAskingReloadRef.current = true;
 
       try {
         const { readFile } = await import('@tauri-apps/plugin-fs');
@@ -336,23 +350,25 @@ function App() {
           // 前回保存時あるいは現在のエディタ内容と同一なら、自アプリの保存イベントの遅延か実質無変更とみなして無視する
           return;
         }
-      } catch (err) {
-        console.error('[Watch] Failed to read file for comparison:', err);
-        // 読み込めない(削除・リネームで消えた)ファイルは再読み込みを提案する対象ではないため、ダイアログを出さずに終了する
-        return;
-      }
 
-      isAskingReloadRef.current = true;
-      try {
+        if (declinedExternalContentRef.current.get(filePath) === normalized) {
+          // 直前に「いいえ」で見送った内容と同じなら再度は尋ねない
+          return;
+        }
+
         const confirmed = await askDialog(
           `ファイルが外部で変更されました:\n${filePath.split(/[\\/]/).pop()}\n\n再読み込みしますか？`,
           { title: 'ファイル変更検出', kind: 'info', okLabel: 'はい', cancelLabel: 'いいえ' }
         );
         if (confirmed) {
+          declinedExternalContentRef.current.delete(filePath);
           await readFileWithEncoding(filePath);
+        } else {
+          declinedExternalContentRef.current.set(filePath, normalized);
         }
       } catch (err) {
         console.error('[Watch] Failed to handle external change:', err);
+        // 読み込めない(削除・リネームで消えた)ファイルなどもここに来るが、ダイアログは出さず終了する
       } finally {
         isAskingReloadRef.current = false;
       }
@@ -361,6 +377,7 @@ function App() {
     setupWatch();
     return () => {
       if (unwatchFn) unwatchFn();
+      if (debounceTimer !== null) clearTimeout(debounceTimer);
     };
   }, [currentFilePath]);
 
@@ -689,6 +706,8 @@ function App() {
         scrollLeft: 0,
       });
       unmarkDirty(path);
+      // 新規に読み込んだ内容が基準になるので、これまでの「いいえ」の記憶は破棄する
+      declinedExternalContentRef.current.delete(path);
     } catch (err) {
       console.error("Failed to read file with encoding:", err);
     }
