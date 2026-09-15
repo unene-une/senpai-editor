@@ -474,17 +474,30 @@ function App() {
     return () => window.removeEventListener('keydown', handler);
   }, []);
 
-  // Alt+Tab などで戻ってきたとき、本文にフォーカスが残っていても IME が入力欄を見失っていることがあるので当て直す
+  // 本文にフォーカスを戻してよい状態（どこにもフォーカスが無く、モーダルやダイアログが開いていない）なら当て直す
+  const restoreEditorFocusIfIdle = useCallback(() => {
+    const ta = textareaRef.current;
+    if (!ta) return;
+    const active = document.activeElement;
+    const nothingFocused = !active || active === document.body;
+    const overlayOpen = document.querySelector('.modal-overlay, .custom-dialog-overlay') !== null;
+    if (nothingFocused && !overlayOpen) focusForIme(ta);
+  }, []);
+
+  // Alt+Tab などで戻ってきたとき、本文にフォーカスが残っていても IME が入力欄を見失っていることがある場合と、
+  // 別アプリへ切り替えていた間に本文からフォーカスが完全に外れてしまっている場合の両方に対応して当て直す
   useEffect(() => {
     const handler = () => {
       const ta = textareaRef.current;
       if (ta && document.activeElement === ta) {
         requestAnimationFrame(() => focusForIme(ta));
+      } else {
+        requestAnimationFrame(restoreEditorFocusIfIdle);
       }
     };
     window.addEventListener('focus', handler);
     return () => window.removeEventListener('focus', handler);
-  }, []);
+  }, [restoreEditorFocusIfIdle]);
 
   // 選択範囲の追跡（ステータスバーの「選択: n字」表示用）。
   // selectionchange はマウス・キーボード・setSelectionRange のいずれによる
@@ -632,6 +645,9 @@ function App() {
       }
     } catch (err) {
       console.error("Failed to open folder:", err);
+    } finally {
+      // ダイアログが閉じた後（選択・キャンセル・失敗のいずれでも）はフォーカスが宙に浮くので本文に戻す
+      restoreEditorFocusIfIdle();
     }
   };
   useEffect(() => {
@@ -783,6 +799,9 @@ function App() {
     } catch (err) {
       console.error('Failed to save file:', err);
       await messageDialog(`保存に失敗しました:\n${err}`, { title: 'エラー', kind: 'error' });
+    } finally {
+      // Ctrl+S 実行後にフォーカスがどこにも無い状態になることがあるため、本文に戻す
+      restoreEditorFocusIfIdle();
     }
   };
   useEffect(() => {
