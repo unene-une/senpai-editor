@@ -3,7 +3,7 @@ import { X } from 'lucide-react';
 import FocusTrap from 'focus-trap-react';
 import { messageDialog, askDialog } from '../utils/dialog';
 import { CustomDialog } from './CustomDialog';
-import { defaultSettings } from '../settings';
+import { defaultSettings, isHexColor } from '../settings';
 
 interface Preset {
     id: string;
@@ -63,6 +63,19 @@ function normalizeNumbers(s: Settings): Settings {
         }
     }
     return result;
+}
+
+// 色欄を保存用に正規化する。色は CSS 変数経由で使われるため、#rrggbb 以外
+// （url() など）が入っていたらデフォルト色へ戻す。入力中（handleChange）は
+// 途中の文字列を許容したいので、保存のタイミングでのみ適用する
+function normalizeColors(s: Settings): Settings {
+    const customColors = { ...s.customColors };
+    for (const key of Object.keys(customColors) as (keyof typeof customColors)[]) {
+        if (!isHexColor(customColors[key])) {
+            customColors[key] = defaultSettings.customColors[key];
+        }
+    }
+    return { ...s, customColors };
 }
 
 const SettingsModal: React.FC<SettingsModalProps> = ({ settings, onSave, onClose, onExport, onImport }) => {
@@ -181,7 +194,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ settings, onSave, onClose
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
-        onSave(normalizeNumbers(localSettings));
+        onSave(normalizeColors(normalizeNumbers(localSettings)));
         onClose();
     };
 

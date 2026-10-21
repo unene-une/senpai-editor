@@ -40,6 +40,7 @@ import { checkProofing, ProofingIssue } from "./utils/proofreader";
 import { countPureChars } from "./utils/textStats";
 import { scrollCaretIntoView } from "./utils/caret";
 import { focusForIme } from "./utils/textarea";
+import { validateFileName } from "./utils/fileName";
 import ProofingPanel from "./components/ProofingPanel";
 import SettingsModal from "./components/SettingsModal";
 import NewProjectModal from "./components/NewProjectModal";
@@ -1027,6 +1028,12 @@ function App() {
 
   const performRename = async (file: FileItem, newName: string) => {
     if (!newName || newName === file.name) return;
+
+    const err = validateFileName(newName);
+    if (err) {
+      await messageDialog(err, { title: '名前の変更', kind: 'warning' });
+      return;
+    }
 
     try {
       const { rename } = await import('@tauri-apps/plugin-fs');

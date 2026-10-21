@@ -68,13 +68,21 @@ function isValidTheme(value: unknown): value is AppSettings['theme'] {
   return value === 'light' || value === 'dark' || value === 'rainbow' || value === 'custom';
 }
 
-// customColors を安全に取り込む。デフォルトを土台にし、文字列の値だけ上書きする
+// #rrggbb 形式の色かどうか
+export function isHexColor(value: unknown): value is string {
+  return typeof value === 'string' && /^#[0-9a-fA-F]{6}$/.test(value);
+}
+
+// customColors を安全に取り込む。デフォルトを土台にし、#rrggbb 形式の値だけ上書きする
+// 色は CSS 変数に入れて使うため、url() などが入ると外部通信が起きてしまう。
+// そのため #rrggbb のみ許可し、それ以外はデフォルト色のままにする。
+// 起動時の読み込みも sanitizeSettings 経由なので、すでに保存済みの不正な値も自動的に修復される。
 function sanitizeCustomColors(input: unknown): AppSettings['customColors'] {
   const result = { ...defaultSettings.customColors };
   if (input && typeof input === 'object') {
     for (const key of Object.keys(result) as (keyof AppSettings['customColors'])[]) {
       const value = (input as Record<string, unknown>)[key];
-      if (typeof value === 'string') {
+      if (isHexColor(value)) {
         result[key] = value;
       }
     }
