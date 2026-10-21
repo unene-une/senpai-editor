@@ -38,8 +38,9 @@ export function validateFileName(name: string): string | null {
     return '末尾にドットや空白は使えません';
   }
 
-  // 最初の「.」より前（基本名）が予約名かどうか。大文字小文字は区別しない
-  const baseName = name.split('.')[0].toUpperCase();
+  // 最初の「.」より前（基本名）が予約名かどうか。大文字小文字は区別しない。
+  // Windows は「CON .txt」のように基本名の末尾に空白があっても予約名として扱うので、空白を除いて判定する
+  const baseName = name.split('.')[0].trimEnd().toUpperCase();
   if (WINDOWS_RESERVED_NAMES.has(baseName)) {
     return `「${baseName}」はWindowsで予約された名前のため使えません`;
   }

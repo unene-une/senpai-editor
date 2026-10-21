@@ -47,7 +47,7 @@ const NewProjectModal: React.FC<NewProjectModalProps> = ({ onSave, onClose }) =>
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!config.parentDir) {
-            alert('親ディレクトリを選択してください。');
+            await messageDialog('親ディレクトリを選択してください。', { title: '新規タイトル', kind: 'warning' });
             return;
         }
         // フォルダ名と、ファイル名の基本名（${基本名}${連番}.txt で作られる）を検証する
