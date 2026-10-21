@@ -48,7 +48,7 @@ Senpai Editor は、Tauri + React + TypeScript で構築された、小説同人
 ## 🛠️ インストールと開発
 
 ### 必要環境
-- Node.js (v18+)
+- Node.js v24 LTS 推奨（v20.19 以上、または v22.12 以上でも可）
 - Rust (Tauri のビルドに必要)
 
 ### 開発環境のセットアップ
