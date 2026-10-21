@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { X, Folder } from 'lucide-react';
 import FocusTrap from 'focus-trap-react';
-import { openDialog } from '../utils/dialog';
+import { openDialog, messageDialog } from '../utils/dialog';
+import { validateFileName } from '../utils/fileName';
 
 interface NewProjectConfig {
     parentDir: string;
@@ -43,10 +44,16 @@ const NewProjectModal: React.FC<NewProjectModalProps> = ({ onSave, onClose }) =>
         }));
     };
 
-    const handleSubmit = (e: React.FormEvent) => {
+    const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!config.parentDir) {
             alert('親ディレクトリを選択してください。');
+            return;
+        }
+        // フォルダ名と、ファイル名の基本名（${基本名}${連番}.txt で作られる）を検証する
+        const err = validateFileName(config.folderName) ?? validateFileName(config.fileBaseName);
+        if (err) {
+            await messageDialog(err, { title: '新規タイトル', kind: 'warning' });
             return;
         }
         onSave(config);
